@@ -1,0 +1,130 @@
+<Window x:Class="YoutubeCounterApp.TemplateSelectWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:gif="http://wpfanimatedgif.codeplex.com"
+        xmlns:local="clr-namespace:YoutubeCounterApp"
+        Title="Template Gallery" Height="600" Width="800"
+        WindowStartupLocation="CenterOwner" Background="#FDF2F8">
+    
+    <Window.Resources>
+        <local:PathToImageConverter x:Key="PathToImageConverter"/>
+        <Style x:Key="DragLabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#60A5FA"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="TextDecorations" Value="Underline"/>
+                    <Setter Property="Foreground" Value="#3B82F6"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid AllowDrop="True" Drop="Grid_Drop">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <RowDefinition Height="*"/>    </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="White" Padding="15" BorderBrush="#F1F5F9" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                        <RadioButton Content="すべて" GroupName="FilterGroup" Margin="5,0" IsChecked="{Binding IsAllSelected}"/>
+                        <RadioButton Content="お気に入り⭐" GroupName="FilterGroup" Margin="5,0" FontFamily="Segoe UI Emoji" IsChecked="{Binding IsFavoriteSelected}"/>
+                        <RadioButton Content="カスタム🛠️" GroupName="FilterGroup" Margin="5,0" FontFamily="Segoe UI Emoji" IsChecked="{Binding IsCustomSelected}"/>
+                    </StackPanel>
+                    
+                    <Button Content="＋ フォルダから追加" 
+                            Command="{Binding AddTemplateCommand}"
+                            DockPanel.Dock="Right"
+                            Background="#F0F9FF"
+                            Padding="10,5"/>
+                </DockPanel>
+
+                <TextBox Text="{Binding SearchWord, UpdateSourceTrigger=PropertyChanged}" 
+                         Height="35" VerticalContentAlignment="Center"
+                         BorderBrush="#FBCFE8" BorderThickness="2" Margin="5,0"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding TemplatesView}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="White" Margin="15,10" CornerRadius="15">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="10" Opacity="0.1" ShadowDepth="2"/>
+                            </Border.Effect>
+                            
+                            <Grid Margin="15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="250"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0" Height="140" Background="#F1F5F9" CornerRadius="10">
+                                    <Image gif:ImageBehavior.AnimatedSource="{Binding PreviewImagePath, Converter={StaticResource PathToImageConverter}}" Stretch="UniformToFill" HorizontalAlignment="Center"/>
+                                </Border>
+
+                                <StackPanel Grid.Column="1" Margin="20,0,0,0">
+                                    <DockPanel>
+                                        <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="Bold" Foreground="#64748B"/>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" 
+                                                    BorderBrush="Transparent" 
+                                                    FontFamily="Segoe UI Emoji"
+                                                    Margin="2,0"
+                                                    FontSize= "18"
+                                                    Cursor= "Hand"
+                                                    Width="30" Height="30">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Content" Value="☆" />
+                                                        <Setter Property="Foreground" Value="Gray" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                <Setter Property="Content" Value="⭐" />
+                                                                <Setter Property="Foreground" Value="#FFD700" /> </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                            <Button Content="📁" Command="{Binding DataContext.OpenTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" BorderBrush="Transparent" Margin="5,0"/>
+                                            <Button Command="{Binding DataContext.DeleteTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Content="🗑️"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Top"
+                                                    Margin="5"
+                                                    Background="#FFE1E1"
+                                                    Foreground="#FF4B4B"
+                                                    BorderThickness="0"
+                                                    Width="30" Height="30"
+                                                    Cursor="Hand">
+                                            </Button>
+                                        </StackPanel>
+                                    </DockPanel>
+
+                                    <Border Margin="0,15,0,0" Padding="10" Background="#EFF6FF" CornerRadius="8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="➡ " Foreground="#3B82F6"/>
+                                            <TextBlock Text="ここをドラッグしてOBSに入れる" 
+                                                       Style="{StaticResource DragLabelStyle}"
+                                                       MouseLeftButtonDown="DragLabel_MouseLeftButtonDown"/>
+                                        </StackPanel>
+                                    </Border>
+                                    
+                                    <TextBlock Text="{Binding Description}" Foreground="#94A3B8" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="12"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</Window>

@@ -1,0 +1,23 @@
+<Window x:Class="YoutubeCounterApp.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="自動アップデート" Height="180" Width="380"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Top">
+            <TextBlock x:Name="MessageText" VerticalAlignment="Center" TextWrapping="Wrap"
+                       Text="新しいバージョンが配信されています！"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button x:Name="UpdateButton" Content="はい" Width="75" Height="25" Margin="0,0,8,0" Click="UpdateButton_Click" IsDefault="True"/>
+            <Button x:Name="NoButton" Content="いいえ" Width="75" Height="25" Margin="0,0,8,0" Click="NoButton_Click"/>
+            <Button x:Name="SkipButton" Content="スキップ" Width="75" Height="25" Click="SkipButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
