@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>つむメーター</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="counter-container">
+        <!-- フレーム画像 -->
+        <img src="Default_1.png" class="frame-image" alt="frame">
+        
+        <!-- 数字を表示するオーバーレイ -->
+        <div class="content-overlay">
+            <!-- 左側：同接数（人型アイコンの右） -->
+            <div class="stat-item viewer-item">
+                <span class="count" id="viewer-count">0</span>
+            </div>
+
+            <!-- 右側：高評価数（グッドボタンの右） -->
+            <div class="stat-item like-item">
+                <span class="count" id="like-count">0</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const viewerElement = document.getElementById('viewer-count');
+        const likeElement   = document.getElementById('like-count');
+
+        // C# WebSocket サーバー接続
+        function connectWebSocket() {
+            const ws = new WebSocket('ws://localhost:8081/');
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    // 1. 同時視聴者数
+                    if (viewerElement && data.viewers !== undefined) {
+                        const num = parseInt(data.viewers, 10);
+                        viewerElement.textContent = !isNaN(num) ? num.toLocaleString() : data.viewers;
+                    }
+
+                    // 2. 高評価数
+                    if (likeElement && data.likes !== undefined) {
+                        const num = parseInt(data.likes, 10);
+                        likeElement.textContent = !isNaN(num) ? num.toLocaleString() : data.likes;
+                    }
+
+                } catch (e) {
+                    console.error("JSONパースエラー:", e);
+                }
+            };
+
+            ws.onclose = () => {
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WebSocketエラー:", err);
+                ws.close();
+            };
+        }
+
+        connectWebSocket();
+    </script>
+</body>
+</html>

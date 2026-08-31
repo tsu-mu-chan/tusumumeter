@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@700;900&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: transparent; /* OBS透過用 */
+    overflow: hidden;
+    font-family: 'Zen Maru Gothic', sans-serif;
+}
+
+/* 全体枠（1000px×1000pxキャンバス） */
+.counter-container {
+    position: relative;
+    width: 1000px;
+    height: 1000px;
+}
+
+/* 背景フレーム画像 */
+.frame-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    z-index: 1;
+}
+
+/* テキスト配置用のレイアウト */
+.content-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+}
+
+/* 数値の共通配置スタイル */
+.stat-item {
+    position: absolute;
+    left: 400px; /* 各アイコンの右隣位置 */
+    width: 680px;
+    display: flex;
+    align-items: center;
+}
+
+/* --- Default_7用（3段縦並び位置設定） --- */
+/* 上段：同接数（人型アイコンの高さ） */
+.v-item {
+    top: 200px;
+}
+
+/* 中段：高評価数（グッドアイコンの高さ） */
+.l-item {
+    top: 390px;
+}
+
+/* 下段：登録者数（再生アイコンの高さ） */
+.s-item {
+    top: 570px;
+}
+
+/* 基本数字テキスト */
+.count {
+    font-size: 150px;
+    font-weight: 1000;
+    letter-spacing: 2px;
+}
+
+/* グレージュ枠専用カラー＆ソフトな白フチ */
+.count-beige {
+    color: #8c7b70; /* アイコンのグレージュに合わせたやわらかいブラウン */
+    text-shadow: 
+        2px  2px 0px #ffffff,
+       -2px  2px 0px #ffffff,
+        2px -2px 0px #ffffff,
+       -2px -2px 0px #ffffff;
+}

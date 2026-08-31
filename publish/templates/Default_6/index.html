@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>つむメーター - 登録者数（Blue）</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="counter-container">
+        <!-- 画像ファイル名：Default_6.png -->
+        <img src="Default_6.png" class="frame-image" alt="frame">
+        
+        <div class="content-overlay">
+            <div class="stat-item sub-blue-item">
+                <span class="count count-blue" id="sub-count">0</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const subElement = document.getElementById('sub-count');
+
+        // C# WebSocket サーバー接続
+        function connectWebSocket() {
+            const ws = new WebSocket('ws://localhost:8081/');
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    // チャンネル登録者数の更新
+                    if (subElement && data.subs !== undefined && data.subs !== "0" && data.subs !== "") {
+                        const num = parseInt(data.subs, 10);
+                        subElement.textContent = !isNaN(num) ? num.toLocaleString() : data.subs;
+                    }
+
+                } catch (e) {
+                    console.error("JSONパースエラー:", e);
+                }
+            };
+
+            ws.onclose = () => {
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WebSocketエラー:", err);
+                ws.close();
+            };
+        }
+
+        connectWebSocket();
+    </script>
+</body>
+</html>

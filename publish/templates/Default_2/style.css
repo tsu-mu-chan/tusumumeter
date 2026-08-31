@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@700;900&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: transparent; /* OBS透過用 */
+    overflow: hidden;
+    font-family: 'Zen Maru Gothic', sans-serif;
+}
+
+/* 全体枠（1000px×1000pxキャンバス） */
+.counter-container {
+    position: relative;
+    width: 1000px;
+    height: 1000px;
+}
+
+/* 背景フレーム画像 */
+.frame-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    z-index: 1;
+}
+
+/* テキスト配置用のレイアウト */
+.content-overlay {
+    position: absolute;
+    top: 20px;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+}
+
+/* 各数値の位置共通定義 */
+.stat-item {
+    position: absolute;
+    top: 51.5%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+}
+
+/* --- Default_2用（チャンネル登録者数） --- */
+/* 再生アイコンの右隣に配置 */
+.sub-item {
+    left: 400px;
+    width: 650px;
+}
+
+/* 数字テキストのスタイル */
+.count {
+    font-size: 200px; /* 単体表示用に少し大きめに設定 */
+    font-weight: 1000;
+    color: #333333; /* 黒フレームに合わせた濃いグレー */
+    letter-spacing: 2px;
+}
