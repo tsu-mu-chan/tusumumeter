@@ -97,6 +97,8 @@ namespace YoutubeCounterApp
 
         public TemplateSelectViewModel()
         {
+            WriteLog("TemplateSelectViewModel の初期化を開始します。");
+
             LoadTemplates();
             LoadSettings();
 
@@ -131,6 +133,20 @@ namespace YoutubeCounterApp
             IsAllSelected = true;
         }
 
+        /// <summary>
+        /// ログ出力用ヘルパーメソッド
+        /// </summary>
+        private void WriteLog(string message)
+        {
+            try
+            {
+                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log.txt");
+                string logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [Template] {message}{Environment.NewLine}";
+                File.AppendAllText(logPath, logLine);
+            }
+            catch { /* ログ書き込み失敗でアプリを破綻させないための保護 */ }
+        }
+
         private void LoadTemplates()
         {
             Templates.Clear();
@@ -138,7 +154,11 @@ namespace YoutubeCounterApp
             // 実行ファイルと同じ階層の "templates" フォルダを探す
             string templatesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates");
 
-            if (!Directory.Exists(templatesPath)) return;
+            if (!Directory.Exists(templatesPath))
+            {
+                WriteLog($"templates フォルダが見つかりません: {templatesPath}");
+                return;
+            }
 
             foreach (var dir in Directory.GetDirectories(templatesPath))
             {
@@ -165,38 +185,9 @@ namespace YoutubeCounterApp
                     PreviewImagePath = imagePath
                 });
             }
+
+            WriteLog($"テンプレートを {Templates.Count} 件読み込みました。");
         }
-
-        // private void AddTemplate()
-        // {
-        //     var dialog = new Microsoft.Win32.OpenFolderDialog
-        //     {
-        //         Title = "テンプレートフォルダを選択してください",
-        //         Multiselect = false
-        //     };
-
-        //     if (dialog.ShowDialog() == true)s
-        //     {
-        //         string selectedPath = dialog.FolderName;
-                
-        //         // 1. 選択されたフォルダをアプリの templates フォルダにコピーする処理
-        //         string folderName = Path.GetFileName(selectedPath);
-        //         string targetPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates", folderName);
-                
-        //         if (!Directory.Exists(targetPath))
-        //         {
-        //             CopyDirectory(selectedPath, targetPath);
-                    
-        //             // 2. リストを再読み込み
-        //             LoadTemplates(); 
-        //             LoadSettings(); // お気に入り状態も再適用
-        //         }
-        //         else
-        //         {
-        //             MessageBox.Show("同じ名前のテンプレートが既に存在します😭");
-        //         }
-        //     }
-        // }
 
         // フォルダを中身ごとコピーする補助関数（サブフォルダ対応）
         private void CopyDirectory(string source, string target)
@@ -218,6 +209,7 @@ namespace YoutubeCounterApp
         {
             if (template != null && Directory.Exists(template.LocalPath))
             {
+                WriteLog($"テンプレートフォルダを開きます: {template.LocalPath}");
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = template.LocalPath,
@@ -231,6 +223,7 @@ namespace YoutubeCounterApp
             if (template != null)
             {
                 template.IsFavorite = !template.IsFavorite;
+                WriteLog($"お気に入り状態を変更しました: {template.Name} -> {template.IsFavorite}");
                 
                 // ★を切り替えた瞬間にファイルに書き込む
                 SaveSettings(); 
@@ -253,6 +246,8 @@ namespace YoutubeCounterApp
             {
                 try
                 {
+                    WriteLog($"テンプレート削除処理を開始します: {template.Name}");
+
                     //【重要】まず、このアイテムの画像をnullにしてバインドを解除する
                     template.PreviewImage = null;
                     
@@ -270,9 +265,12 @@ namespace YoutubeCounterApp
                     
                     // 3. お気に入り設定などの保存処理
                     SaveSettings(); 
+
+                    WriteLog($"テンプレートを正常に削除しました: {template.Name}");
                 }
                 catch (Exception ex)
                 {
+                    WriteLog($"[ERROR] テンプレート削除に失敗しました ({template.Name}): {ex.Message}");
                     MessageBox.Show($"削除に失敗しました: {ex.Message}");
                 }
             }
@@ -296,10 +294,11 @@ namespace YoutubeCounterApp
                             template.IsFavorite = settings.FavoriteTemplates.Contains(template.FolderName);
                         }
                     }
+                    WriteLog("設定ファイル (settings.json) からお気に入り情報を読み込みました。");
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // ファイル破壊時などの例外ハンドリング
+                    WriteLog($"[ERROR] 設定ファイルの読み込みに失敗しました: {ex.Message}");
                 }
             }
         }
@@ -311,15 +310,19 @@ namespace YoutubeCounterApp
             {
                 var settings = new AppSettings
                 {
-                    FavoriteTemplates = Templates.Where(t => t.IsFavorite).Select(t => t.FolderName).ToList()
+                    FavoriteTemplates = Templates
+                        .Where(t => t.IsFavorite && t.FolderName != null)
+                        .Select(t => t.FolderName!)
+                        .ToList()
                 };
                 
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_settingsPath, json);
+                WriteLog("設定ファイル (settings.json) を更新・保存しました。");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"設定の保存に失敗しました: {ex.Message}");
+                WriteLog($"[ERROR] 設定の保存に失敗しました: {ex.Message}");
             }
         }
 
@@ -336,6 +339,7 @@ namespace YoutubeCounterApp
         /// </summary>
         private void ImportTemplateFromPath(string path)
         {
+            WriteLog($"テンプレートのインポートを試行します: {path}");
             string templatesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates");
 
             // ファイルが指定され、かつ .zip ではない場合（例: 解凍済みフォルダ内の index.html が選ばれた場合）は親フォルダを対象にする
@@ -357,11 +361,13 @@ namespace YoutubeCounterApp
                 if (!Directory.Exists(targetPath))
                 {
                     CopyDirectory(path, targetPath);
+                    WriteLog($"フォルダからテンプレートを追加しました: {folderName}");
                     LoadTemplates();
                     LoadSettings();
                 }
                 else
                 {
+                    WriteLog($"インポートスキップ: すでに同名のフォルダが存在します ({folderName})");
                     MessageBox.Show($"「{folderName}」は既に存在します。");
                 }
             }
@@ -376,11 +382,13 @@ namespace YoutubeCounterApp
                     // Zipを解凍してコピー
                     ZipFile.ExtractToDirectory(path, targetPath);
                     UnwrapSingleFolderIfNeeded(targetPath);
+                    WriteLog($"Zipファイルからテンプレートを展開・追加しました: {folderName}");
                     LoadTemplates();
                     LoadSettings();
                 }
                 else
                 {
+                    WriteLog($"インポートスキップ: すでに同名のZip展開先が存在します ({folderName})");
                     MessageBox.Show($"「{folderName}」は既に存在します。");
                 }
             }
@@ -406,11 +414,12 @@ namespace YoutubeCounterApp
                     Directory.Move(singleSubDir, tempPath);
                     Directory.Delete(targetPath, true);
                     Directory.Move(tempPath, targetPath);
+                    WriteLog($"ZIP解凍後の二重フォルダ構造を解消しました: {targetPath}");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"フォルダ階層の調整に失敗しました: {ex.Message}");
+                WriteLog($"[ERROR] フォルダ階層の調整に失敗しました: {ex.Message}");
             }
         }
 
@@ -422,6 +431,7 @@ namespace YoutubeCounterApp
             if (parameter is DragEventArgs e && e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                WriteLog($"ドラッグ＆ドロップによるインポートを検知しました (件数: {files.Length})");
                 foreach (var path in files)
                 {
                     ImportTemplateFromPath(path);
@@ -481,6 +491,4 @@ namespace YoutubeCounterApp
         public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) 
             => throw new NotImplementedException();
     }
-
-    
 }

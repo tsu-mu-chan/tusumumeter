@@ -131,10 +131,10 @@
                 
                 <Button Content="⚙️ 基本設定" 
                         Style="{StaticResource YumekawaButtonStyle}" Background="White"
-                        Height="45" Margin="0,5"/>
+                        Height="45" Margin="0,5" Command="{Binding OpenBasicSettingsWindowCommand}"/>
                 
                 <Separator Background="White" Margin="0,20" Opacity="0.5"/>
-                <TextBlock Text="ver 1.0.0" FontSize="10" Foreground="#CBD5E1" HorizontalAlignment="Center"/>
+                <!-- <TextBlock Text="ver 1.0.0" FontSize="10" Foreground="#CBD5E1" HorizontalAlignment="Center"/> -->
             </StackPanel>
         </Border>
     </Grid>
