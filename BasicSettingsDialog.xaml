@@ -1,0 +1,84 @@
+<Window x:Class="YoutubeCounterApp.BasicSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="基本設定" Height="450" Width="350"
+        WindowStartupLocation="CenterOwner"
+        AllowsTransparency="True" WindowStyle="None" Background="Transparent">
+    
+    <!-- 背景オーバーレイ＆ダイアログ外枠 -->
+    <Border Background="#F7F5FF" CornerRadius="20" Padding="24" BorderBrush="#EAE3FF" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="20" Color="#6B5B95" Opacity="0.15" ShadowDepth="4"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- タイトルバー -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,20">
+                <TextBlock Text="⚙️" FontSize="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock Text="基本設定" FontSize="18" FontWeight="Bold" Foreground="#6B5B95" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- 設定コンテンツ領域 -->
+            <StackPanel Grid.Row="1" Margin="0,0,0,16">
+                
+                <!-- YouTube アカウント設定グループ -->
+                <Border Background="White" CornerRadius="16" Margin="0, 12, 0, 0" Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="👤 YouTube アカウント" FontSize="14" FontWeight="Bold" Foreground="#7A68A6" Margin="0,0,0,8"/>
+                        <TextBlock Text="ブランドアカウントの切り替えや再ログインを行います。" FontSize="11" Foreground="#9E93B8" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        
+                        <!-- アカウント切替ボタン -->
+                        <Button x:Name="BtnSwitchAccount" 
+                                Content="アカウントを切替 / ログイン" 
+                                Height="40" 
+                                Background="#EBE5FF" 
+                                Foreground="#5C4A8A" 
+                                FontWeight="Bold"
+                                FontSize="13"
+                                BorderThickness="0" 
+                                Click="BtnSwitchAccount_Click">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="20"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <!-- アプリ情報グループ -->
+                <Border Background="White" CornerRadius="16" Margin="0, 12, 0, 0" Padding="16">
+                    <DockPanel>
+                        <TextBlock Text="ℹ️ バージョン" FontSize="13" Foreground="#7A68A6"/>
+                        <TextBlock Text="ver 2.0.1" HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#9E93B8"/>
+                    </DockPanel>
+                </Border>
+                
+            </StackPanel>
+
+            <!-- 閉じるボタン -->
+            <Button Grid.Row="2" 
+                    x:Name="BtnClose" 
+                    Content="CLOSE" 
+                    Height="40" 
+                    Margin="0,16,0,0"
+                    Background="#FFDCC8" 
+                    Foreground="#A06040" 
+                    FontWeight="Bold" 
+                    BorderThickness="0" 
+                    Click="BtnClose_Click">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="20"/>
+                    </Style>
+                </Button.Resources>
+            </Button>
+        </Grid>
+    </Border>
+</Window>
