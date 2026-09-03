@@ -244,19 +244,34 @@ public class MainViewModel : INotifyPropertyChanged
 
                 if (!found)
                 {
-                    WriteLog("[Loop] 配信枠が見つかりませんでした（または読み込みタイムアウト）。リトライします。");
+                    WriteLog("[Loop] 配信中のライブ枠が見つかりませんでした。登録者数を更新してオフライン待機モードに入ります。");
 
-                    StatusText = $"登録者: {_currentSubs}人";
-                    if (!string.IsNullOrEmpty(_currentSubs) && _currentSubs != "0")
+                    // 1. 同接・高評価をクリア
+                    _currentViewers = "0";
+                    _currentLikes = "0";
+
+                    // 2. 登録者数の取得を実行（配信画面の処理の後に取得）
+                    StatusText = "登録者数を更新中...";
+                    string fetchedSubss = await FetchSubscriberCountAsync();
+                    
+                    if (_isAccountSwitching) continue;
+
+                    WriteLog($"[Loop] オフライン時 登録者数取得完了: {fetchedSubss}");
+
+                    // 画面カウンターの更新
+                    UpdateLiveStats(_currentViewers, _currentLikes, _currentSubs);
+
+                    // 3. ユーザー向けステータス表示
+                    StatusText = $"🍃 配信オフライン（登録者数: {_currentSubs}人）/ 30秒後にリトライ";
+
+                    // 4. 30秒待機（1秒ごとにアカウント切り替え・終了フラグをチェック）
+                    for (int sec = 0; sec < 30; sec++)
                     {
-                        _currentViewers = "0";
-                        _currentLikes = "0";
-                        UpdateLiveStats(_currentViewers, _currentLikes, _currentSubs);
+                        if (_isAccountSwitching || IsForceClose) break;
+                        await Task.Delay(1000);
                     }
 
-                    StatusText = "⚠️ 配信中のライブが見つかりませんでした。5秒後にリトライします。";
-                    await Task.Delay(5000);
-                    continue;
+                    continue; // 次のループ（再び配信管理画面のチェック）へ
                 }
 
                 WriteLog("[Loop] 配信枠の選択に成功しました。同接監視に入ります (15秒滞在)");
