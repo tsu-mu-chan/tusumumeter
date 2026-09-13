@@ -156,7 +156,7 @@ public class MainViewModel : INotifyPropertyChanged
         _ = InitializeAsync();
     }
 
-    private async Task InitializeAsync()
+private async Task InitializeAsync()
     {
         try
         {
@@ -184,10 +184,20 @@ public class MainViewModel : INotifyPropertyChanged
                     IsStartEnabled = true;
                 }
             }
+            else
+            {
+                // 💡 未ログイン時の表示更新を追加
+                StatusText = "「初回ログイン」ボタンからログインしてください✨";
+                IsLoginEnabled = true;
+                IsStartEnabled = false;
+            }
         }
         catch (Exception ex)
         {
             Logger.WriteLog($"[Init Error] 初期化処理中に重大な例外が発生しました: {ex}");
+            StatusText = "初期化中にエラーが発生しました。ログを確認してください。";
+            IsLoginEnabled = true;
+            IsStartEnabled = false;
         }
     }
 

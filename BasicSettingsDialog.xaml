@@ -168,22 +168,39 @@
                                 <TextBlock Text="👤 YouTube アカウント" FontSize="13" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,0,0,4"/>
                                 <TextBlock Text="ブランドアカウントの切り替えや再ログインを行います。" FontSize="11" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
                                 
-                                <Button x:Name="BtnSwitchAccount" 
-                                        Content="アカウントを切替 / ログイン" 
-                                        Height="38" 
-                                        Background="#BAE6FD" 
-                                        Foreground="#0369A1" 
-                                        FontWeight="SemiBold"
-                                        FontSize="12"
-                                        BorderThickness="0" 
-                                        Cursor="Hand"
-                                        Click="BtnSwitchAccount_Click">
-                                    <Button.Resources>
-                                        <Style TargetType="Border">
-                                            <Setter Property="CornerRadius" Value="19"/>
-                                        </Style>
-                                    </Button.Resources>
-                                </Button>
+                            <Button x:Name="BtnSwitchAccount" 
+                                    Content="アカウントを切替 / ログイン" 
+                                    Height="38" 
+                                    Background="#BAE6FD" 
+                                    Foreground="#0369A1" 
+                                    FontWeight="SemiBold"
+                                    FontSize="12"
+                                    BorderThickness="0" 
+                                    Cursor="Hand"
+                                    Click="BtnSwitchAccount_Click">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <!-- 💡 ログイン中のみ有効（未ログイン[IsLoginEnabled=True]のときは押せない） -->
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsLoginEnabled}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False"/>
+                                            </DataTrigger>
+                                            <!-- 非活性時のスタイル（グレーアウト） -->
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Background" Value="#E2E8F0"/>
+                                                <Setter Property="Foreground" Value="#94A3B8"/>
+                                                <Setter Property="Cursor" Value="No"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="19"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
                             </StackPanel>
                         </Border>
 
