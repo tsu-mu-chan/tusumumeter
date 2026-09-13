@@ -1,447 +1,519 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
-using System.Windows.Media.Imaging;
-using System.IO.Compression; // zip解凍用に追加
+using System.Text.RegularExpressions;
 
 namespace YoutubeCounterApp
 {
     public class TemplateSelectViewModel : INotifyPropertyChanged
     {
-        // 画面に表示するテンプレートのリスト
-        public ObservableCollection<TemplateInfo> Templates { get; } = new ObservableCollection<TemplateInfo>();
-        
-        // JSON設定パス
-        private readonly string _settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+        private static readonly string[] DefaultCategories = { "Counter","ManualCounter", "Comment", "Reaction", "Clock" };
+        private static readonly string[] ImageExtensions = { ".gif", ".png", ".jpg", ".jpeg" };
 
-#region 検索
+        private readonly string _settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+        private readonly string _templatesRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates");
+
+        public ObservableCollection<TemplateInfo> Templates { get; } = new();
+        public ICollectionView TemplatesView { get; }
+
+        #region 検索
         private string? _searchWord;
         public string SearchWord
         {
             get => _searchWord;
-            set 
-            { 
-                _searchWord = value; 
-                OnPropertyChanged(); 
-                TemplatesView?.Refresh(); // リアルタイム絞り込み
-            }
-        }
-#endregion
-
-#region ソートラジオボタン
-        public ICollectionView TemplatesView { get; }
-
-        private string _currentFilter = "All";
-        public string CurrentFilter
-        {
-            get => _currentFilter;
             set
             {
-                if (_currentFilter != value)
+                if (_searchWord != value)
                 {
-                    _currentFilter = value;
-                    OnPropertyChanged(); // 変更を通知
+                    _searchWord = value;
+                    OnPropertyChanged();
+                    TemplatesView?.Refresh();
+                }
+            }
+        }
+        #endregion
 
-                    // ラジオボタンの「チェック状態」も変わったことを通知する
-                    OnPropertyChanged(nameof(IsAllSelected));
-                    OnPropertyChanged(nameof(IsFavoriteSelected));
-                    OnPropertyChanged(nameof(IsCustomSelected));
+        #region カテゴリ・フィルタ切り替え
+        private int _selectedTabIndex = 0;
+        public int SelectedTabIndex
+        {
+            get => _selectedTabIndex;
+            set
+            {
+                if (_selectedTabIndex != value)
+                {
+                    _selectedTabIndex = value;
+                    OnPropertyChanged();
 
-                    TemplatesView.Refresh(); // フィルタを再適用して画面を更新！
+                    SelectedCategory = _selectedTabIndex switch
+                    {
+                        0 => "All",
+                        1 => "Counter",
+                        2 => "ManualCounter", 
+                        3 => "Comment",
+                        4 => "Reaction",
+                        5 => "Clock",
+                        6 => "Favorite",
+                        _ => "All"
+                    };
                 }
             }
         }
 
-        // XAMLのラジオボタンと繋ぐためのプロパティ
-        public bool IsAllSelected
+        private string _selectedCategory = "All";
+        public string SelectedCategory
         {
-            get => CurrentFilter == "All";
-            set 
-            {
-                if (value) CurrentFilter = "All"; 
-            }
-        }
-
-        public bool IsFavoriteSelected
-        {
-            get => CurrentFilter == "Favorite";
-            set 
-            { 
-                if (value) CurrentFilter = "Favorite"; 
-            }
-        }
-
-        public bool IsCustomSelected
-        {
-            get => CurrentFilter == "Custom";
+            get => _selectedCategory;
             set
             {
-                if (value) CurrentFilter = "Custom";
+                if (_selectedCategory != value)
+                {
+                    _selectedCategory = value;
+                    OnPropertyChanged();
+                    TemplatesView?.Refresh();
+                }
             }
         }
-#endregion
+        #endregion
 
         public ICommand AddTemplateCommand { get; }
         public ICommand OpenTemplateCommand { get; }
         public ICommand ToggleFavoriteCommand { get; }
         public ICommand DeleteTemplateCommand { get; }
         public ICommand DropTemplateCommand { get; }
+        public ICommand OpenPreviewCommand { get; }
 
         public TemplateSelectViewModel()
         {
-            WriteLog("TemplateSelectViewModel の初期化を開始します。");
+            Logger.WriteLog("TemplateSelectViewModel の初期化を開始します。");
+
+            AddTemplateCommand = new RelayCommand(_ => AddTemplate());
+            OpenTemplateCommand = new RelayCommand(param => OpenTemplateFolder(param as TemplateInfo));
+            ToggleFavoriteCommand = new RelayCommand(param => ToggleFavorite(param as TemplateInfo));
+            DeleteTemplateCommand = new RelayCommand(param => DeleteTemplate(param as TemplateInfo));
+            DropTemplateCommand = new RelayCommand(OnDropTemplate);
+            OpenPreviewCommand = new RelayCommand(param => ExecuteOpenPreview(param as TemplateInfo));
+
+            TemplatesView = CollectionViewSource.GetDefaultView(Templates);
+            TemplatesView.Filter = FilterTemplates;
 
             LoadTemplates();
             LoadSettings();
 
-            AddTemplateCommand = new RelayCommand(_ => AddTemplate());
-            OpenTemplateCommand = new RelayCommand(param => OpenTemplateFolder(param as TemplateInfo));
-            ToggleFavoriteCommand = new RelayCommand(param => ToggleFavorite(param as TemplateInfo)); 
-            DeleteTemplateCommand = new RelayCommand(param => DeleteTemplate(param as TemplateInfo)); 
-            DropTemplateCommand = new RelayCommand(param => OnDropTemplate(param));
-
-            // 表示用のビューを作成
-            TemplatesView = CollectionViewSource.GetDefaultView(Templates);
-            
-            // 絞り込みルールを定義
-            TemplatesView.Filter = item =>
-            {
-                if (item is TemplateInfo t)
-                {
-                    // ラジオボタンによるフィルタ
-                    if (CurrentFilter == "Favorite" && !t.IsFavorite) return false;
-                    if (CurrentFilter == "Custom") return false; // 今後の拡張用
-
-                    // 検索機能によるフィルタ
-                    if (string.IsNullOrWhiteSpace(SearchWord)) return true;
-
-                    // スペースで分割して「すべて含まれているか」をチェック
-                    var keywords = SearchWord.ToLower().Split(new[] { ' ', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    return keywords.All(k => t.Name != null && t.Name.ToLower().Contains(k));                
-                }
-                return false;
-            };
-
-            IsAllSelected = true;
+            SelectedTabIndex = 0;
         }
 
-        /// <summary>
-        /// ログ出力用ヘルパーメソッド
-        /// </summary>
-        private void WriteLog(string message)
+        private bool FilterTemplates(object item)
         {
-            try
+            if (item is not TemplateInfo t) return false;
+
+            if (SelectedCategory == "Favorite")
             {
-                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log.txt");
-                string logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [Template] {message}{Environment.NewLine}";
-                File.AppendAllText(logPath, logLine);
+                if (!t.IsFavorite) return false;
             }
-            catch { /* ログ書き込み失敗でアプリを破綻させないための保護 */ }
+            else if (SelectedCategory != "All")
+            {
+                if (!string.Equals(t.Category, SelectedCategory, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(SearchWord)) return true;
+
+            var keywords = SearchWord.ToLower().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            return keywords.All(k => t.Name != null && t.Name.ToLower().Contains(k));
         }
 
-        private void LoadTemplates()
+        public void LoadTemplates()
         {
+            EnsureCategoryDirectories();
             Templates.Clear();
 
-            // 実行ファイルと同じ階層の "templates" フォルダを探す
-            string templatesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates");
-
-            if (!Directory.Exists(templatesPath))
+            var categoryDirs = Directory.GetDirectories(_templatesRoot);
+            foreach (var categoryDir in categoryDirs)
             {
-                WriteLog($"templates フォルダが見つかりません: {templatesPath}");
-                return;
+                string categoryName = Path.GetFileName(categoryDir);
+
+                // パターンA: サブフォルダ形式（例: templates/Comment/02_Comment_Simple_Green/）
+                foreach (var subDir in Directory.GetDirectories(categoryDir))
+                {
+                    var htmlFiles = Directory.GetFiles(subDir, "*.html");
+                    if (htmlFiles.Length == 0) continue;
+
+                    string htmlPath = htmlFiles.FirstOrDefault(f => Path.GetFileName(f).Equals("index.html", StringComparison.OrdinalIgnoreCase))
+                                      ?? htmlFiles[0];
+
+                    string folderName = Path.GetFileName(subDir);
+                    string previewPath = FindPreviewImage(subDir, "preview");
+
+                    Templates.Add(CreateTemplateInfo(folderName, subDir, htmlPath, previewPath, categoryName, $"{folderName} のテンプレート"));
+                }
+
+                // パターンB: ファイル直置き形式（例: templates/Comment/Comment_Blue.html）
+                foreach (var htmlFile in Directory.GetFiles(categoryDir, "*.html"))
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(htmlFile);
+                    string previewPath = FindPreviewImage(categoryDir, baseName);
+
+                    Templates.Add(CreateTemplateInfo(baseName, categoryDir, htmlFile, previewPath, categoryName, $"{baseName} の単体テンプレート"));
+                }
             }
 
-            foreach (var dir in Directory.GetDirectories(templatesPath))
-            {
-                var dirInfo = new DirectoryInfo(dir);
-                string[] exts = { ".gif", ".png", ".jpg", ".jpeg" };
-                string? imagePath = null;
-                    
-                foreach (var ext in exts)
-                {
-                    var tempPath = Path.Combine(dir, "preview" + ext);
-                    if (File.Exists(tempPath))
-                    {
-                        imagePath = tempPath;
-                        break; // 見つかったらループを抜ける
-                    }
-                } 
-
-                Templates.Add(new TemplateInfo
-                {
-                    Name = dirInfo.Name,
-                    FolderName = dirInfo.Name,
-                    Description = $"{dirInfo.Name} スタイルのカウンターテンプレートですよ～",
-                    LocalPath = dir,
-                    PreviewImagePath = imagePath
-                });
-            }
-
-            WriteLog($"テンプレートを {Templates.Count} 件読み込みました。");
+            Logger.WriteLog($"テンプレートを {Templates.Count} 件読み込みました。");
         }
 
-        // フォルダを中身ごとコピーする補助関数（サブフォルダ対応）
-        private void CopyDirectory(string source, string target)
+        private void EnsureCategoryDirectories()
         {
-            Directory.CreateDirectory(target);
-            
-            foreach (var file in Directory.GetFiles(source))
+            if (!Directory.Exists(_templatesRoot))
             {
-                File.Copy(file, Path.Combine(target, Path.GetFileName(file)));
+                Directory.CreateDirectory(_templatesRoot);
             }
 
-            foreach (var subDir in Directory.GetDirectories(source))
+            foreach (var category in DefaultCategories)
             {
-                CopyDirectory(subDir, Path.Combine(target, Path.GetFileName(subDir)));
+                string categoryPath = Path.Combine(_templatesRoot, category);
+                if (!Directory.Exists(categoryPath))
+                {
+                    Directory.CreateDirectory(categoryPath);
+                }
             }
+        }
+
+        private static string FindPreviewImage(string directory, string baseFileName)
+        {
+            foreach (var ext in ImageExtensions)
+            {
+                string candidate = Path.Combine(directory, baseFileName + ext);
+                if (File.Exists(candidate)) return candidate;
+            }
+            return string.Empty;
+        }
+
+        private static TemplateInfo CreateTemplateInfo(string name, string folderPath, string htmlPath, string previewPath, string category, string description)
+        {
+            // 1. カテゴリごとのデフォルト値
+            int width = category switch
+            {
+                "Clock" => 360,
+                "Comment" => 420,
+                "Counter" => 450,
+                "ManualCounter" => 360,
+                "Reaction" => 320,
+                _ => 400
+            };
+            int height = category switch
+            {
+                "Clock" => 120,
+                "Comment" => 600,
+                "Counter" => 140,
+                "ManualCounter" => 120,
+                "Reaction" => 320,
+                _ => 120
+            };
+
+            // 2. HTMLから指定サイズを自動検出（あれば上書き）
+            var htmlSize = TryExtractSizeFromHtml(htmlPath);
+            if (htmlSize.HasValue)
+            {
+                width = htmlSize.Value.width;
+                height = htmlSize.Value.height;
+            }
+
+            return new TemplateInfo
+            {
+                Name = name,
+                FolderName = name,
+                LocalPath = folderPath,
+                HtmlPath = htmlPath,
+                PreviewImagePath = previewPath,
+                Category = category,
+                Description = description,
+                RecommendedWidth = width,
+                RecommendedHeight = height
+            };
         }
 
         private void OpenTemplateFolder(TemplateInfo? template)
         {
-            if (template != null && Directory.Exists(template.LocalPath))
+            if (template?.LocalPath != null && Directory.Exists(template.LocalPath))
             {
-                WriteLog($"テンプレートフォルダを開きます: {template.LocalPath}");
+                Logger.WriteLog($"テンプレートフォルダを開きます: {template.LocalPath}");
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = template.LocalPath,
-                    UseShellExecute = true // フォルダを規定のアプリ（エクスプローラー）で開く
+                    UseShellExecute = true
                 });
             }
         }
 
         private void ToggleFavorite(TemplateInfo? template)
         {
-            if (template != null)
-            {
-                template.IsFavorite = !template.IsFavorite;
-                WriteLog($"お気に入り状態を変更しました: {template.Name} -> {template.IsFavorite}");
-                
-                // ★を切り替えた瞬間にファイルに書き込む
-                SaveSettings(); 
-                TemplatesView.Refresh(); // 画面をリフレッシュして非表示にする
-            }
+            if (template == null) return;
+
+            template.IsFavorite = !template.IsFavorite;
+            Logger.WriteLog($"お気に入り状態を変更しました: {template.Name} -> {template.IsFavorite}");
+
+            SaveSettings();
+            TemplatesView.Refresh();
         }
 
         private void DeleteTemplate(TemplateInfo? template)
         {
             if (template == null) return;
 
-            // 誤操作防止の確認メッセージ
             var result = MessageBox.Show(
-                $"{template.Name} を削除してもよろしいですか？\n(PCからフォルダが完全に削除されます)", 
-                "テンプレートの削除", 
-                MessageBoxButton.YesNo, 
+                $"{template.Name} を削除してもよろしいですか？\n(PCから完全に削除されます)",
+                "テンプレートの削除",
+                MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
 
-            if (result == MessageBoxResult.Yes)
+            if (result != MessageBoxResult.Yes) return;
+
+            try
             {
-                try
+                Logger.WriteLog($"テンプレート削除処理を開始します: {template.Name}");
+                template.PreviewImage = null;
+
+                // ファイル直置き形式の場合はそのHTMLと対応画像を削除、フォルダ形式の場合はディレクトリごと削除
+                if (File.Exists(template.HtmlPath) && Path.GetFileName(template.LocalPath) != template.Name)
                 {
-                    WriteLog($"テンプレート削除処理を開始します: {template.Name}");
-
-                    //【重要】まず、このアイテムの画像をnullにしてバインドを解除する
-                    template.PreviewImage = null;
-                    
-                    // 少しだけ待機してWPFに「もう使ってないよ」と分からせる（おまじない）
-                    System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
-
-                    // 1. PC上のフォルダを削除
-                    if (Directory.Exists(template.LocalPath))
+                    File.Delete(template.HtmlPath);
+                    if (!string.IsNullOrEmpty(template.PreviewImagePath) && File.Exists(template.PreviewImagePath))
                     {
-                        Directory.Delete(template.LocalPath, true); // trueで中身もろとも削除
+                        File.Delete(template.PreviewImagePath);
                     }
-
-                    // 2. リスト（Templates）から削除して画面を更新
-                    Templates.Remove(template);
-                    
-                    // 3. お気に入り設定などの保存処理
-                    SaveSettings(); 
-
-                    WriteLog($"テンプレートを正常に削除しました: {template.Name}");
                 }
-                catch (Exception ex)
+                else if (template.LocalPath != null && Directory.Exists(template.LocalPath))
                 {
-                    WriteLog($"[ERROR] テンプレート削除に失敗しました ({template.Name}): {ex.Message}");
-                    MessageBox.Show($"削除に失敗しました: {ex.Message}");
+                    Directory.Delete(template.LocalPath, true);
                 }
+
+                Templates.Remove(template);
+                SaveSettings();
+                Logger.WriteLog($"テンプレートを正常に削除しました: {template.Name}");
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[ERROR] テンプレート削除に失敗しました ({template.Name}): {ex.Message}");
+                MessageBox.Show($"削除に失敗しました: {ex.Message}");
             }
         }
 
-        // --- 設定ファイル読み込み ---
         private void LoadSettings()
         {
-            if (File.Exists(_settingsPath))
+            try
             {
-                try
+                var favorites = AppSettings.Instance.FavoriteTemplates;
+                if (favorites != null && favorites.Count > 0)
                 {
-                    string json = File.ReadAllText(_settingsPath);
-                    var settings = JsonSerializer.Deserialize<AppSettings>(json);
-                    
-                    if (settings?.FavoriteTemplates != null)
+                    var favSet = new HashSet<string>(favorites);
+                    foreach (var template in Templates)
                     {
-                        foreach (var template in Templates)
+                        if (template.FolderName != null)
                         {
-                            // 保存されているリストに名前があれば★をつける
-                            template.IsFavorite = settings.FavoriteTemplates.Contains(template.FolderName);
+                            template.IsFavorite = favSet.Contains(template.FolderName);
                         }
                     }
-                    WriteLog("設定ファイル (settings.json) からお気に入り情報を読み込みました。");
                 }
-                catch (Exception ex)
-                {
-                    WriteLog($"[ERROR] 設定ファイルの読み込みに失敗しました: {ex.Message}");
-                }
+                Logger.WriteLog("AppSettings からお気に入り情報を反映しました。");
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[ERROR] お気に入り設定の読み込みに失敗しました: {ex.Message}");
             }
         }
 
-        // --- 設定ファイル保存 ---
         private void SaveSettings()
         {
             try
             {
-                var settings = new AppSettings
-                {
-                    FavoriteTemplates = Templates
-                        .Where(t => t.IsFavorite && t.FolderName != null)
-                        .Select(t => t.FolderName!)
-                        .ToList()
-                };
-                
-                string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_settingsPath, json);
-                WriteLog("設定ファイル (settings.json) を更新・保存しました。");
+                AppSettings.Instance.FavoriteTemplates = Templates
+                    .Where(t => t.IsFavorite && !string.IsNullOrEmpty(t.FolderName))
+                    .Select(t => t.FolderName)
+                    .ToList();
+
+                AppSettings.Instance.Save();
+                Logger.WriteLog("お気に入り情報を config.json へ保存しました。");
             }
             catch (Exception ex)
             {
-                WriteLog($"[ERROR] 設定の保存に失敗しました: {ex.Message}");
+                Logger.WriteLog($"[ERROR] お気に入り設定の保存に失敗しました: {ex.Message}");
             }
         }
 
-        // --- INotifyPropertyChanged の実装 ---
-        public event PropertyChangedEventHandler? PropertyChanged;
+    /// <summary>
+    /// フォルダ、Zipファイル、または個別ファイルからのインポート処理（ハイブリッド型）
+    /// </summary>
+    private void ImportTemplateFromPath(string path)
+    {
+        Logger.WriteLog($"テンプレートのインポートを試行します: {path}");
 
-        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+        // ファイルが指定され、かつ .zip ではない場合は親フォルダを対象にする
+        if (File.Exists(path) && !Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            string? parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent)) path = parent;
         }
 
-        /// <summary>
-        /// フォルダ、Zipファイル、またはフォルダ内のファイル(index.html等)からテンプレートを追加する汎用処理
-        /// </summary>
-        private void ImportTemplateFromPath(string path)
+        string itemName = Path.GetFileNameWithoutExtension(path);
+        string targetCategory;
+
+        // ① 特定カテゴリ（Counter / Comment / Reaction / Clock）表示中はダイアログなしでそのまま追加
+        if (SelectedCategory != "All" && SelectedCategory != "Favorite")
         {
-            WriteLog($"テンプレートのインポートを試行します: {path}");
-            string templatesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates");
+            targetCategory = SelectedCategory;
+        }
+        else
+        {
+            // ② 「すべて」または「お気に入り」タブ時はキーワードから初期値を推測し、ダイアログで確認
+            string guessedCategory = GuessCategoryFromPath(path);
 
-            // ファイルが指定され、かつ .zip ではない場合（例: 解凍済みフォルダ内の index.html が選ばれた場合）は親フォルダを対象にする
-            if (File.Exists(path) && !Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            var dialog = new CategorySelectDialog(itemName, guessedCategory)
             {
-                string? parentDir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(parentDir))
-                {
-                    path = parentDir;
-                }
+                Owner = Application.Current.Windows.OfType<TemplateSelectWindow>().FirstOrDefault()
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                Logger.WriteLog("インポートがユーザーによってキャンセルされました。");
+                return;
             }
 
-            if (Directory.Exists(path))
-            {
-                // フォルダの場合
-                string folderName = Path.GetFileName(path);
-                string targetPath = Path.Combine(templatesDir, folderName);
-
-                if (!Directory.Exists(targetPath))
-                {
-                    CopyDirectory(path, targetPath);
-                    WriteLog($"フォルダからテンプレートを追加しました: {folderName}");
-                    LoadTemplates();
-                    LoadSettings();
-                }
-                else
-                {
-                    WriteLog($"インポートスキップ: すでに同名のフォルダが存在します ({folderName})");
-                    MessageBox.Show($"「{folderName}」は既に存在します。");
-                }
-            }
-            else if (File.Exists(path) && Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                // Zipファイルの場合
-                string folderName = Path.GetFileNameWithoutExtension(path);
-                string targetPath = Path.Combine(templatesDir, folderName);
-
-                if (!Directory.Exists(targetPath))
-                {
-                    // Zipを解凍してコピー
-                    ZipFile.ExtractToDirectory(path, targetPath);
-                    UnwrapSingleFolderIfNeeded(targetPath);
-                    WriteLog($"Zipファイルからテンプレートを展開・追加しました: {folderName}");
-                    LoadTemplates();
-                    LoadSettings();
-                }
-                else
-                {
-                    WriteLog($"インポートスキップ: すでに同名のZip展開先が存在します ({folderName})");
-                    MessageBox.Show($"「{folderName}」は既に存在します。");
-                }
-            }
+            targetCategory = dialog.SelectedCategory;
         }
 
-        /// <summary>
-        /// ZIP解凍後にフォルダが二重構造（例: templates/Sample/Sample/preview.png）になっている場合、階層を1つ引き上げる
-        /// </summary>
-        private void UnwrapSingleFolderIfNeeded(string targetPath)
+        string destinationDir = Path.Combine(_templatesRoot, targetCategory);
+        Directory.CreateDirectory(destinationDir);
+
+        if (Directory.Exists(path))
+        {
+            string folderName = Path.GetFileName(path);
+            string targetPath = Path.Combine(destinationDir, folderName);
+
+            if (!Directory.Exists(targetPath))
+            {
+                CopyDirectory(path, targetPath);
+                Logger.WriteLog($"フォルダからテンプレートを追加しました: [{targetCategory}] {folderName}");
+                LoadTemplates();
+                LoadSettings();
+            }
+            else
+            {
+                MessageBox.Show($"「{folderName}」は既に {targetCategory} 内に存在します。");
+            }
+        }
+        else if (File.Exists(path) && Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            string folderName = Path.GetFileNameWithoutExtension(path);
+            string targetPath = Path.Combine(destinationDir, folderName);
+
+            if (!Directory.Exists(targetPath))
+            {
+                ZipFile.ExtractToDirectory(path, targetPath);
+                UnwrapSingleFolderIfNeeded(targetPath);
+                Logger.WriteLog($"Zipファイルからテンプレートを展開・追加しました: [{targetCategory}] {folderName}");
+                LoadTemplates();
+                LoadSettings();
+            }
+            else
+            {
+                MessageBox.Show($"「{folderName}」は既に {targetCategory} 内に存在します。");
+            }
+        }
+    }
+
+    /// <summary>
+    /// フォルダ名やファイル名からカテゴリを推測するヘルパー
+    /// </summary>
+    private static string GuessCategoryFromPath(string path)
+    {
+        string name = Path.GetFileName(path).ToLowerInvariant();
+
+        // 💡 手動カウンター判定を優先
+        if (name.Contains("manual") || name.Contains("マニュアル") || name.Contains("手動") || name.Contains("もくひょう") || name.Contains("おはよう") || name.Contains("あいさつ"))
+        {
+            return "ManualCounter";
+        }
+        if (name.Contains("comment") || name.Contains("chat") || name.Contains("コメント") || name.Contains("チャット"))
+        {
+            return "Comment";
+        }
+        if (name.Contains("clock") || name.Contains("time") || name.Contains("時計") || name.Contains("タイマー") || name.Contains("同時視聴"))
+        {
+            return "Clock";
+        }
+        if (name.Contains("reaction") || name.Contains("リアクション") || name.Contains("タンク") || name.Contains("絵文字"))
+        {
+            return "Reaction";
+        }
+        if (name.Contains("count") || name.Contains("sub") || name.Contains("高評価") || name.Contains("登録") || name.Contains("同接") || name.Contains("カウンター"))
+        {
+            return "Counter";
+        }
+
+        return "Counter";
+    }
+
+        private static void UnwrapSingleFolderIfNeeded(string targetPath)
         {
             try
             {
                 var files = Directory.GetFiles(targetPath);
                 var subDirs = Directory.GetDirectories(targetPath);
 
-                // ルート直下にファイルがなく、サブフォルダが1つだけ存在する場合は二重構造と判断
                 if (files.Length == 0 && subDirs.Length == 1)
                 {
                     string singleSubDir = subDirs[0];
                     string tempPath = targetPath + "_temp";
 
-                    // 一時フォルダを経由してサブフォルダの中身を直下に移動
                     Directory.Move(singleSubDir, tempPath);
                     Directory.Delete(targetPath, true);
                     Directory.Move(tempPath, targetPath);
-                    WriteLog($"ZIP解凍後の二重フォルダ構造を解消しました: {targetPath}");
+                    Logger.WriteLog($"ZIP解凍後の二重フォルダ構造を解消しました: {targetPath}");
                 }
             }
             catch (Exception ex)
             {
-                WriteLog($"[ERROR] フォルダ階層の調整に失敗しました: {ex.Message}");
+                Logger.WriteLog($"[ERROR] フォルダ階層の調整に失敗しました: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// ドラッグ＆ドロップで受け取ったパスの処理
-        /// </summary>
+        private static void CopyDirectory(string source, string target)
+        {
+            Directory.CreateDirectory(target);
+            foreach (var file in Directory.GetFiles(source))
+            {
+                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), true);
+            }
+            foreach (var subDir in Directory.GetDirectories(source))
+            {
+                CopyDirectory(subDir, Path.Combine(target, Path.GetFileName(subDir)));
+            }
+        }
+
         private void OnDropTemplate(object? parameter)
         {
             if (parameter is DragEventArgs e && e.Data.GetDataPresent(DataFormats.FileDrop))
             {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                WriteLog($"ドラッグ＆ドロップによるインポートを検知しました (件数: {files.Length})");
-                foreach (var path in files)
+                if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
                 {
-                    ImportTemplateFromPath(path);
+                    Logger.WriteLog($"ドラッグ＆ドロップによるインポートを検知しました (件数: {files.Length})");
+                    foreach (var path in files)
+                    {
+                        ImportTemplateFromPath(path);
+                    }
                 }
             }
         }
 
-        /// <summary>
-        /// ファイル（Zip）またはフォルダダイアログからの追加
-        /// </summary>
         private void AddTemplate()
         {
             var dialog = new Microsoft.Win32.OpenFileDialog
@@ -454,41 +526,84 @@ namespace YoutubeCounterApp
             if (dialog.ShowDialog() == true)
             {
                 ImportTemplateFromPath(dialog.FileName);
-            } 
+            }
         }
-    }
 
-    public class PathToImageConverter : System.Windows.Data.IValueConverter
-    {
-        public object? Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        private void ExecuteOpenPreview(TemplateInfo? item)
         {
-            if (value is string path && File.Exists(path))
+            if (item == null) return;
+
+            try
             {
-                try
+                string targetPath = !string.IsNullOrEmpty(item.HtmlPath) && File.Exists(item.HtmlPath)
+                    ? item.HtmlPath
+                    : item.LocalPath;
+
+                if (File.Exists(targetPath))
                 {
-                    // ファイルを一度バイト配列として完全に読み込む
-                    byte[] buffer = File.ReadAllBytes(path);
-                    
-                    var ms = new MemoryStream(buffer);
-                    
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.StreamSource = ms;
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad; // 読み込み時に全て展開
-                    bitmap.EndInit();
-                    bitmap.Freeze(); // メモリ上に固定され、元のストリームが不要になる
-                    return bitmap;
-                    
-                }
-                catch 
-                { 
-                    return null; 
+                    // 余計なパラメータを付けず、ブラウザにそのまま渡す
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = targetPath,
+                        UseShellExecute = true
+                    });
                 }
             }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[Preview] プレビュー起動失敗: {ex.Message}");
+            }
+        }
+
+        private static (int width, int height)? TryExtractSizeFromHtml(string htmlPath)
+        {
+            if (!File.Exists(htmlPath)) return null;
+
+            try
+            {
+                // 先頭5KB程度のみ読み込めば十分（ファイル全体を読み込まず高速化）
+                string content;
+                using (var reader = new StreamReader(htmlPath))
+                {
+                    char[] buffer = new char[5120];
+                    int read = reader.Read(buffer, 0, buffer.Length);
+                    content = new string(buffer, 0, read);
+                }
+
+                // 1. <meta name="obs-size" content="450x650"> を検索
+                var metaMatch = Regex.Match(content, @"<meta\s+name=[""']obs-size[""']\s+content=[""'](?<w>\d+)\s*[x×,]\s*(?<h>\d+)[""']", RegexOptions.IgnoreCase);
+                if (metaMatch.Success)
+                {
+                    return (int.Parse(metaMatch.Groups["w"].Value), int.Parse(metaMatch.Groups["h"].Value));
+                }
+
+                // 2. コメント形式 <!-- obs-size: 450x650 --> を検索
+                var commentMatch = Regex.Match(content, @"obs-(?:recommended-)?size:\s*(?<w>\d+)\s*[x×,]\s*(?<h>\d+)", RegexOptions.IgnoreCase);
+                if (commentMatch.Success)
+                {
+                    return (int.Parse(commentMatch.Groups["w"].Value), int.Parse(commentMatch.Groups["h"].Value));
+                }
+
+                // 3. CSS内の body または #chat-wrapper などの width/height (例: width: 450px; height: 600px;) から推測
+                var widthMatch = Regex.Match(content, @"(?:body|container|wrapper)\s*\{[^}]*?width:\s*(?<w>\d+)px", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                var heightMatch = Regex.Match(content, @"(?:body|container|wrapper)\s*\{[^}]*?height:\s*(?<h>\d+)px", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                if (widthMatch.Success && heightMatch.Success)
+                {
+                    return (int.Parse(widthMatch.Groups["w"].Value), int.Parse(heightMatch.Groups["h"].Value));
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[Template] HTMLサイズ抽出エラー ({htmlPath}): {ex.Message}");
+            }
+
             return null;
         }
 
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) 
-            => throw new NotImplementedException();
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
     }
 }

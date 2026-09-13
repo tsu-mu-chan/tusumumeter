@@ -1,19 +1,72 @@
-using System.IO;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows.Media.Imaging;
 
-public class TemplateInfo : BindableBase
+namespace YoutubeCounterApp
 {
-    public string? Name { get; set; }
-    public string? FolderName { get; set; }
-    public string? Description { get; set; }
-    public BitmapImage? PreviewImage { get; set; }
-    public string? LocalPath { get; set; }
-    public string PreviewImagePath { get; set; }
-
-    private bool _isFavorite;
-    public bool IsFavorite
+    public class TemplateInfo : INotifyPropertyChanged
     {
-        get => _isFavorite;
-        set => SetProperty(ref _isFavorite, value); // お気に入りのON/OFFで見た目を変える
+        public string Name { get; set; } = string.Empty;
+        public string FolderName { get; set; } = string.Empty;
+        public string LocalPath { get; set; } = string.Empty;
+        public string HtmlPath { get; set; } = string.Empty;
+        public string PreviewImagePath { get; set; } = string.Empty;
+        public BitmapSource? PreviewImage { get; set; }
+        public string Category { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+
+        // 💡 推奨サイズ（幅・高さ）
+        private int _recommendedWidth = 400;
+        public int RecommendedWidth
+        {
+            get => _recommendedWidth;
+            set
+            {
+                if (_recommendedWidth != value)
+                {
+                    _recommendedWidth = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(RecommendedSizeText));
+                }
+            }
+        }
+
+        private int _recommendedHeight = 120;
+        public int RecommendedHeight
+        {
+            get => _recommendedHeight;
+            set
+            {
+                if (_recommendedHeight != value)
+                {
+                    _recommendedHeight = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(RecommendedSizeText));
+                }
+            }
+        }
+
+        // 💡 XAMLバインド用プロパティ
+        public string RecommendedSizeText => $"{RecommendedWidth} × {RecommendedHeight} px";
+
+        private bool _isFavorite;
+        public bool IsFavorite
+        {
+            get => _isFavorite;
+            set
+            {
+                if (_isFavorite != value)
+                {
+                    _isFavorite = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
     }
 }

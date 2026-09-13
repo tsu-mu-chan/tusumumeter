@@ -3,128 +3,433 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:gif="http://wpfanimatedgif.codeplex.com"
         xmlns:local="clr-namespace:YoutubeCounterApp"
-        Title="Template Gallery" Height="600" Width="800"
-        WindowStartupLocation="CenterOwner" Background="#FDF2F8">
+        Title="Template Gallery" Height="660" Width="860"
+        WindowStartupLocation="CenterOwner" Background="#F8FAFC"
+        FontFamily="BIZ UDPMaruGothic, HG丸ｺﾞｼｯｸM-PRO, Meiryo UI, Segoe UI Emoji, sans-serif"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        TextOptions.TextHintingMode="Fixed"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
     
     <Window.Resources>
         <local:PathToImageConverter x:Key="PathToImageConverter"/>
+        
+        <!-- ドラッグ用ラベル（淡いパステルスカイブルー） -->
         <Style x:Key="DragLabelStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#60A5FA"/>
-            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#0284C7"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="TextDecorations" Value="Underline"/>
-                    <Setter Property="Foreground" Value="#3B82F6"/>
+                    <Setter Property="Foreground" Value="#0369A1"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- ✨ メイン調：ぷっくりパステル追加ボタン（ピンク基調） -->
+        <Style x:Key="CuteAddButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="Shadow" Background="#14475569" CornerRadius="18" Margin="1,2,-1,-2"/>
+                            <Border x:Name="MainBorder" Background="#FBCFE8" BorderBrush="White" BorderThickness="2" CornerRadius="18" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="MainBorder" Property="Background" Value="White"/>
+                                <Setter Property="Foreground" Value="#334155"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="MainBorder" Property="Background" Value="#FCE7F3"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 🌿 手動カウンター用：OBSドックURLコピーボタン（水色バーと高さを揃えた淡いミント） -->
+        <Style x:Key="CuteDockCopyButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="#047857"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="MainBorder" 
+                                Background="#ECFDF5" 
+                                BorderBrush="#A7F3D0" 
+                                BorderThickness="1" 
+                                CornerRadius="10" 
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="MainBorder" Property="Background" Value="#D1FAE5"/>
+                                <Setter TargetName="MainBorder" Property="BorderBrush" Value="#6EE7B7"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="MainBorder" Property="Background" Value="#A7F3D0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ✨ カプセル型検索ボックス -->
+        <Style x:Key="CuteSearchTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="border" 
+                                Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="18">
+                            <Grid Margin="4,0">
+                                <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="PlaceholderText" 
+                                           Text="🔍 テンプレートを検索..." 
+                                           Foreground="#94A3B8" 
+                                           Margin="10,0,0,0" 
+                                           VerticalAlignment="Center" 
+                                           IsHitTestVisible="False"
+                                           Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Text" Value="">
+                                <Setter TargetName="PlaceholderText" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="border" Property="Background" Value="#FAF8FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ✨ ピル型タブ（白×ラベンダー／スレート基調） -->
+        <Style TargetType="TabItem">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="Margin" Value="0,0,8,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Border" 
+                                Background="#E2E8F0" 
+                                BorderBrush="White" 
+                                BorderThickness="1.5" 
+                                CornerRadius="20" 
+                                Padding="15,7">
+                            <ContentPresenter x:Name="ContentSite"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Center"
+                                              ContentSource="Header"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="White"/>
+                                <Setter Property="Foreground" Value="#8B5CF6"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="White"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#CBD5E1"/>
+                                <Setter Property="Foreground" Value="#1E293B"/>
+                                <Setter TargetName="Border" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect BlurRadius="10" Opacity="0.1" ShadowDepth="2" Color="#64748B"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ✨ TabControl スタイル -->
+        <Style TargetType="TabControl">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalContentAlignment" Value="Top"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid ClipToBounds="true" SnapsToDevicePixels="true" KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <WrapPanel x:Name="HeaderPanel" 
+                                       Grid.Row="0" 
+                                       IsItemsHost="True" 
+                                       Margin="0,0,0,12"/>
+                            <Border x:Name="ContentPanel" 
+                                    Grid.Row="1" 
+                                    Background="{TemplateBinding Background}" 
+                                    BorderBrush="{TemplateBinding BorderBrush}" 
+                                    BorderThickness="{TemplateBinding BorderThickness}">
+                                <ContentPresenter x:Name="PART_SelectedContentHost" 
+                                                  ContentSource="SelectedContent" 
+                                                  Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
+    <!-- 背景：MainWindowと完全一致させたパステルグラデーション（ピンク ➔ アクア ➔ ラベンダー） -->
     <Grid AllowDrop="True" Drop="Grid_Drop">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/> <RowDefinition Height="*"/>    </Grid.RowDefinitions>
+        <Grid.Background>
+            <RadialGradientBrush Center="0.5,0.4" GradientOrigin="0.5,0.4" RadiusX="1.1" RadiusY="1.1">
+                <GradientStop Color="#FDE8EF" Offset="0"/>
+                <GradientStop Color="#E0F2FE" Offset="0.55"/>
+                <GradientStop Color="#EDE9FE" Offset="1"/>
+            </RadialGradientBrush>
+        </Grid.Background>
 
-        <Border Grid.Row="0" Background="White" Padding="15" BorderBrush="#F1F5F9" BorderThickness="0,0,0,1">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 上部ヘッダー（清潔感のある白パネル＋境界線） -->
+        <Border Grid.Row="0" Background="#F0FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1.5" Padding="20,16" CornerRadius="0,0,24,24">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="16" Opacity="0.08" ShadowDepth="3" Color="#64748B"/>
+            </Border.Effect>
             <StackPanel>
-                <DockPanel LastChildFill="False" Margin="0,0,0,10">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                        <RadioButton Content="すべて" GroupName="FilterGroup" Margin="5,0" IsChecked="{Binding IsAllSelected}"/>
-                        <RadioButton Content="お気に入り⭐" GroupName="FilterGroup" Margin="5,0" FontFamily="Segoe UI Emoji" IsChecked="{Binding IsFavoriteSelected}"/>
-                        <RadioButton Content="カスタム🛠️" GroupName="FilterGroup" Margin="5,0" FontFamily="Segoe UI Emoji" IsChecked="{Binding IsCustomSelected}"/>
+                <DockPanel LastChildFill="False" Margin="0,0,0,12">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Template Gallery" FontSize="21" FontWeight="Bold" Foreground="#334155" VerticalAlignment="Center"/>
+                        <TextBlock Text=" ✨" FontSize="18" Foreground="#8B5CF6" VerticalAlignment="Center"/>
                     </StackPanel>
                     
+                    <!-- フォルダから追加ボタン -->
                     <Button Content="＋ フォルダから追加" 
                             Command="{Binding AddTemplateCommand}"
                             DockPanel.Dock="Right"
-                            Background="#F0F9FF"
-                            Padding="10,5"/>
+                            Style="{StaticResource CuteAddButtonStyle}"/>
                 </DockPanel>
 
+                <!-- 検索ボックス -->
                 <TextBox Text="{Binding SearchWord, UpdateSourceTrigger=PropertyChanged}" 
-                         Height="35" VerticalContentAlignment="Center"
-                         BorderBrush="#FBCFE8" BorderThickness="2" Margin="5,0"/>
+                         Height="38"
+                         Style="{StaticResource CuteSearchTextBoxStyle}"/>
             </StackPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding TemplatesView}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Background="White" Margin="15,10" CornerRadius="15">
-                            <Border.Effect>
-                                <DropShadowEffect BlurRadius="10" Opacity="0.1" ShadowDepth="2"/>
-                            </Border.Effect>
-                            
-                            <Grid Margin="15">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="250"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+        <!-- タブ切り替え ＆ テンプレート一覧エリア -->
+        <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0" Margin="16,14,16,0"
+                    SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
 
-                                <Border Grid.Column="0" Height="140" Background="#F1F5F9" CornerRadius="10">
-                                    <Image gif:ImageBehavior.AnimatedSource="{Binding PreviewImagePath, Converter={StaticResource PathToImageConverter}}" Stretch="UniformToFill" HorizontalAlignment="Center"/>
-                                </Border>
-
-                                <StackPanel Grid.Column="1" Margin="20,0,0,0">
-                                    <DockPanel>
-                                        <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="Bold" Foreground="#64748B"/>
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                            <Button Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent" 
-                                                    BorderBrush="Transparent" 
-                                                    FontFamily="Segoe UI Emoji"
-                                                    Margin="2,0"
-                                                    FontSize= "18"
-                                                    Cursor= "Hand"
-                                                    Width="30" Height="30">
-                                                <Button.Style>
-                                                    <Style TargetType="Button">
-                                                        <Setter Property="Content" Value="☆" />
-                                                        <Setter Property="Foreground" Value="Gray" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                                                                <Setter Property="Content" Value="⭐" />
-                                                                <Setter Property="Foreground" Value="#FFD700" /> </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                            <Button Content="📁" Command="{Binding DataContext.OpenTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent" BorderBrush="Transparent" Margin="5,0"/>
-                                            <Button Command="{Binding DataContext.DeleteTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}"
-                                                    Content="🗑️"
-                                                    HorizontalAlignment="Right"
-                                                    VerticalAlignment="Top"
-                                                    Margin="5"
-                                                    Background="#FFE1E1"
-                                                    Foreground="#FF4B4B"
-                                                    BorderThickness="0"
-                                                    Width="30" Height="30"
-                                                    Cursor="Hand">
-                                            </Button>
-                                        </StackPanel>
-                                    </DockPanel>
-
-                                    <Border Margin="0,15,0,0" Padding="10" Background="#EFF6FF" CornerRadius="8">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="➡ " Foreground="#3B82F6"/>
-                                            <TextBlock Text="ここをドラッグしてOBSに入れる" 
-                                                       Style="{StaticResource DragLabelStyle}"
-                                                       MouseLeftButtonDown="DragLabel_MouseLeftButtonDown"/>
-                                        </StackPanel>
-                                    </Border>
+            <TabControl.Resources>
+                <ScrollViewer x:Key="TemplateListView" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding TemplatesView}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- カード外枠：薄い影と境界線で背景から自然に浮き立たせる -->
+                                <Border Background="White" Margin="4,6" CornerRadius="18" BorderBrush="#E2E8F0" BorderThickness="1.5">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="12" Opacity="0.08" ShadowDepth="2" Color="#64748B"/>
+                                    </Border.Effect>
                                     
-                                    <TextBlock Text="{Binding Description}" Foreground="#94A3B8" Margin="0,10,0,0" TextWrapping="Wrap" FontSize="12"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </ScrollViewer>
+                                    <Grid Margin="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="240"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- プレビュー画像枠 -->
+                                        <Border Grid.Column="0" Height="130" Background="#F8FAFC" CornerRadius="12" BorderBrush="#CBD5E1" BorderThickness="1">
+                                            <Image gif:ImageBehavior.AnimatedSource="{Binding PreviewImagePath, Converter={StaticResource PathToImageConverter}}" 
+                                                   Stretch="UniformToFill" HorizontalAlignment="Center"/>
+                                        </Border>
+
+                                        <!-- 詳細情報 ＆ 操作ボタン群 -->
+                                        <StackPanel Grid.Column="1" Margin="18,0,0,0">
+                                            <DockPanel LastChildFill="True">
+                                                <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="Bold" Foreground="#1E293B" VerticalAlignment="Center"/>
+                                                
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <!-- 👁️ プレビュー確認ボタン -->
+                                                    <Button Command="{Binding DataContext.OpenPreviewCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="ブラウザでプレビュー"
+                                                            Background="Transparent" BorderBrush="Transparent"
+                                                            FontSize="15" Margin="2,0" Width="30" Height="30" Cursor="Hand">
+                                                        <TextBlock Text="👁️" Opacity="0.8"/>
+                                                    </Button>
+
+                                                    <!-- お気に入りボタン -->
+                                                    <Button Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                            CommandParameter="{Binding}"
+                                                            Background="Transparent" BorderBrush="Transparent" 
+                                                            FontFamily="Segoe UI Emoji"
+                                                            Margin="2,0" FontSize="16" Width="30" Height="30" Cursor="Hand">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button">
+                                                                <Setter Property="Content" Value="☆" />
+                                                                <Setter Property="Foreground" Value="#94A3B8" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                        <Setter Property="Content" Value="⭐" />
+                                                                        <Setter Property="Foreground" Value="#F59E0B" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
+
+                                                    <!-- 📁 フォルダを開くボタン -->
+                                                    <Button Content="📁" Command="{Binding DataContext.OpenTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="フォルダを開く"
+                                                            Background="Transparent" BorderBrush="Transparent" 
+                                                            FontSize="14" Margin="2,0" Width="30" Height="30" Cursor="Hand"/>
+
+                                                    <!-- 🗑️ 削除ボタン -->
+                                                    <Button Command="{Binding DataContext.DeleteTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="テンプレートを削除"
+                                                            Content="🗑️"
+                                                            Margin="4,0,0,0"
+                                                            Background="#FFE4E6"
+                                                            BorderThickness="0"
+                                                            Width="30" Height="30"
+                                                            Cursor="Hand">
+                                                        <Button.Resources>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="CornerRadius" Value="10"/>
+                                                            </Style>
+                                                        </Button.Resources>
+                                                    </Button>
+                                                </StackPanel>
+                                            </DockPanel>
+
+                                            <!-- 💡 操作エリア：高さ32px・角丸10pxで完璧に揃えた横並びレイアウト -->
+                                            <Grid Margin="0,10,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <!-- 左：ここをドラッグしてOBSに入れる ＆ 推奨サイズ -->
+                                                <Border Grid.Column="0" Height="32" Padding="12,0" Background="#E0F2FE" BorderBrush="#BAE6FD" BorderThickness="1" CornerRadius="10">
+                                                    <DockPanel LastChildFill="False">
+                                                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                            <TextBlock Text="➡ " Foreground="#0284C7" FontWeight="Bold"/>
+                                                            <TextBlock Text="ここをドラッグしてOBSに入れる" 
+                                                                       Style="{StaticResource DragLabelStyle}"
+                                                                       MouseLeftButtonDown="DragLabel_MouseLeftButtonDown"/>
+                                                        </StackPanel>
+                                                        
+                                                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0">
+                                                            <TextBlock Text="📐 推奨: " FontSize="11" Foreground="#64748B"/>
+                                                            <TextBlock Text="{Binding RecommendedSizeText, FallbackValue='280 × 280 px'}" 
+                                                                       FontSize="11" FontWeight="SemiBold" Foreground="#334155"/>
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                </Border>
+
+                                                <!-- 右：手動カウンター用 OBSドックURLコピーボタン（高さ32pxで自然にフィット） -->
+                                                <Button Grid.Column="1"
+                                                        Margin="8,0,0,0"
+                                                        Click="CopyDockUrlButton_Click"
+                                                        Tag="{Binding}"
+                                                        ToolTip="OBSカスタムブラウザドック用のURLをコピー">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button" BasedOn="{StaticResource CuteDockCopyButtonStyle}">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <!-- タブが「手動カウンター（インデックス2）」のときに表示 -->
+                                                                <DataTrigger Binding="{Binding DataContext.SelectedTabIndex, RelativeSource={RelativeSource AncestorType=Window}}" Value="2">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                                <!-- またはカテゴリ名が「手動カウンター」の場合にも表示 -->
+                                                                <DataTrigger Binding="{Binding Category}" Value="手動カウンター">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <TextBlock Text="📋 " FontSize="12" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="ドック用URLをコピー" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </Grid>
+                                            
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </TabControl.Resources>
+
+            <TabItem Header="すべて ✨">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+
+            <TabItem Header="カウンター 🔢" FontFamily="Segoe UI Emoji">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+
+            <TabItem Header="手動カウンター 🎯" FontFamily="Segoe UI Emoji">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+
+            <TabItem Header="コメント 💬" FontFamily="Segoe UI Emoji">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+
+            <TabItem Header="リアクション 🫙" FontFamily="Segoe UI Emoji">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+
+            <TabItem Header="時計 ⏰" FontFamily="Segoe UI Emoji">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+
+            <TabItem Header="お気に入り ⭐" FontFamily="Segoe UI Emoji">
+                <StaticResource ResourceKey="TemplateListView"/>
+            </TabItem>
+            
+        </TabControl>
     </Grid>
 </Window>

@@ -19,18 +19,22 @@ namespace YoutubeCounterApp;
 
 public class MainViewModel : INotifyPropertyChanged
 {
-    private readonly WebView2 _webView;
-    private readonly List<WebSocket> _sockets = new();
+    private readonly WebView2 _mainWebView; // 1号機：巡回・登録者数・VIDEO_ID取得用
+    private readonly WebView2 _chatWebView; // 2号機：コメント専用（ポップアウトチャット固定）
+    private readonly LocalServerService _serverService = new();
+    private readonly YouTubeCrawlerService _crawlerService;
+    private readonly ListenerService _listenerService = new();
+    private ListenerListWindow? _listenerWindow = null;
 
     private string _currentViewers = "0";
     private string _currentLikes = "0";
     private string _currentSubs = "0";
+    private string _currentVideoId = "";
     private string _lastBroadcastMessage = "";
 
     private string _statusText = "初期化中...";
     private bool _isLoginEnabled = true;
     private bool _isStartEnabled = true;
-    private CancellationTokenSource? _navigationTimeoutCts;
     public bool IsForceClose { get; private set; } = false;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -46,14 +50,62 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand OpenMenuCommand { get; }
     public ICommand CloseMenuCommand { get; }
     public ICommand OpenTemplateWindowCommand { get; }
-
-    public ICommand OpenBasicSettingsWindowCommand {get;}
+    public ICommand OpenBasicSettingsWindowCommand { get; }
+    public ICommand OpenListenerWindowCommand { get; }
 
     public bool _isAccountSwitching = false;
 
-    public MainViewModel(WebView2 webView)
+    // --- 設定連携用プロパティ ---
+    private bool _isAllChatMode = true;
+
+    public bool IsAllChatMode
     {
-        _webView = webView;
+        get => _isAllChatMode;
+        set
+        {
+            if (_isAllChatMode != value)
+            {
+                _isAllChatMode = value;
+                OnPropertyChanged();
+                // 💡 すべてのチャットが変更されたら、トップチャット側にも通知
+                if (value)
+                {
+                    IsTopChatMode = false;
+                }
+            }
+        }
+    }
+
+    private bool _isTopChatMode = false;
+    public bool IsTopChatMode
+    {
+        get => _isTopChatMode;
+        set
+        {
+            if (_isTopChatMode != value)
+            {
+                _isTopChatMode = value;
+                OnPropertyChanged();
+                // 💡 トップチャットが変更されたら、すべてのチャット側にも通知
+                if (value)
+                {
+                    IsAllChatMode = false;
+                }
+            }
+        }
+    }
+
+    public MainViewModel(WebView2 mainWebView, WebView2 chatWebView)
+    {
+        _mainWebView = mainWebView;
+        _chatWebView = chatWebView;
+        _crawlerService = new YouTubeCrawlerService(_mainWebView, _chatWebView);
+
+        // --------------------------------------------------
+        // config.json から設定をロードし、フィールドに初期反映
+        // --------------------------------------------------
+        AppSettings.Load();
+        _isAllChatMode = AppSettings.Instance.IsAllChatMode;
 
         LoginCommand = new RelayCommand(_ => ExecuteLoginAction());
         StartCommand = new RelayCommand(async _ => await StartMonitoringAction());
@@ -64,13 +116,43 @@ public class MainViewModel : INotifyPropertyChanged
         OpenTemplateWindowCommand = new RelayCommand(_ => {
             var templateWin = new TemplateSelectWindow { Owner = Application.Current.MainWindow };
             templateWin.ShowDialog();
-            });
+        });
         OpenBasicSettingsWindowCommand = new RelayCommand(_ => {
             var basicsttingWin = new BasicSettingsDialog { Owner = Application.Current.MainWindow };
             basicsttingWin.ShowDialog();
         });
-             
-        WriteLog("[Init] MainViewModelのインスタンス化を開始します。");
+        OpenListenerWindowCommand = new RelayCommand(_ =>
+        {
+            // メニューを開いていた場合は閉じる
+            (Application.Current.MainWindow as MainWindow)?.CloseMenu();
+
+            // 既に開いている場合は、手前にアクティブ化して終了
+            if (_listenerWindow != null && _listenerWindow.IsLoaded)
+            {
+                if (_listenerWindow.WindowState == WindowState.Minimized)
+                {
+                    _listenerWindow.WindowState = WindowState.Normal;
+                }
+                _listenerWindow.Activate();
+                return;
+            }
+
+            // 新規作成してモーダレス表示
+            _listenerWindow = new ListenerListWindow(_listenerService)
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            // 閉じられたら参照をクリア
+            _listenerWindow.Closed += (s, e) =>
+            {
+                _listenerWindow = null;
+            };
+
+            _listenerWindow.Show(); // ★ ShowDialog() から Show() へ変更
+        });
+
+        Logger.WriteLog("[Init] MainViewModel (マルチWebView2構成) のインスタンス化を開始します。");
         _ = InitializeAsync();
     }
 
@@ -78,84 +160,90 @@ public class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            WriteLog("[Init] サーバーの起動処理を開始します。");
-            StartWebSocketServer();
-            StartStaticFileServer();
+            Logger.WriteLog("[Init] サーバーの起動処理を開始します。");
+            _serverService.Start(AppSettings.Instance.StaticFilePort, AppSettings.Instance.WebSocketPort);
 
-            string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "webview2_profile");
-            WriteLog($"[Init] WebView2環境を初期化中... プロファイルパス: {userDataFolder}");
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-            await _webView.EnsureCoreWebView2Async(env);
+            await _crawlerService.InitializeWebViewsAsync(OnWebMessageReceived);
 
-            _webView.CoreWebView2.Settings.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-            _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
-
-            var cookies = await _webView.CoreWebView2.CookieManager.GetCookiesAsync("https://studio.youtube.com");
-            bool isLoggedIn = cookies.Any(c => c.Name == "LOGIN_INFO" || c.Name == "SID");
-
-            WriteLog($"[Init] クッキー確認完了。ログイン判定: {isLoggedIn}");
+            bool isLoggedIn = await _crawlerService.CheckLoginStatusAsync();
+            Logger.WriteLog($"[Init] クッキー確認完了。ログイン判定: {isLoggedIn}");
 
             if (isLoggedIn)
             {
-                StatusText = "ログイン済みです。自動接続中…✨";
-                IsLoginEnabled = false;
-                IsStartEnabled = false;
-                await StartMonitoringAction();
-            }
-            else
-            {
-                StatusText = "初回ログインをしてね✨";
-                IsLoginEnabled = true;
-                IsStartEnabled = false;
+                if (AppSettings.Instance.AutoStartMonitoring)
+                {
+                    StatusText = "ログイン済みです。自動接続中…✨";
+                    IsLoginEnabled = false;
+                    IsStartEnabled = false;
+                    await StartMonitoringAction();
+                }
+                else
+                {
+                    StatusText = "待機中。「チェックを開始」を押してね✨";
+                    IsLoginEnabled = false;
+                    IsStartEnabled = true;
+                }
             }
         }
         catch (Exception ex)
         {
-            WriteLog($"[Init Error] 初期化処理中に重大な例外が発生しました: {ex}");
+            Logger.WriteLog($"[Init Error] 初期化処理中に重大な例外が発生しました: {ex}");
         }
     }
 
     private void ExecuteLoginAction()
     {
-        WriteLog("[Login] ユーザーがログインボタンを押下しました。YouTube Studioを開きます。");
-        _webView.Visibility = Visibility.Visible;
-        _webView.CoreWebView2.Navigate("https://studio.youtube.com");
+        Logger.WriteLog("[Login] ユーザーがログインボタンを押下しました。YouTube Studioを開きます。");
+        _mainWebView.Visibility = Visibility.Visible;
         StatusText = "YouTube Studioでログインを完了させてね！";
 
-        EventHandler<CoreWebView2SourceChangedEventArgs> handler = null;
-
-        handler = (s, e) => {
-            string url = _webView.Source.ToString();
-            if (url.Contains("studio.youtube.com") && !url.Contains("accounts.google.com"))
+        _crawlerService.NavigateLogin(() =>
+        {
+            Application.Current.Dispatcher.Invoke(() =>
             {
-                WriteLog($"[Login] ログイン成功を検知しました。URL: {url}");
-                _webView.CoreWebView2.SourceChanged -= handler;
-
-                Application.Current.Dispatcher.Invoke(() => {
-                    _webView.Visibility = Visibility.Collapsed;
-                    StatusText = "初回ログイン完了！「チェックを開始」を押してね✨";
-                    IsLoginEnabled = false;
-                    IsStartEnabled = true;
-                });
-            }
-        };
-
-        _webView.CoreWebView2.SourceChanged += handler;
+                _mainWebView.Visibility = Visibility.Collapsed;
+                StatusText = "初回ログイン完了！「チェックを開始」を押してね✨";
+                IsLoginEnabled = false;
+                IsStartEnabled = true;
+            });
+        });
     }
 
     /// <summary>
-    /// 画面巡回型（15秒ループ）のメイン監視処理
+    /// 1号機（巡回用）の監視ループ
     /// </summary>
     private async Task StartMonitoringAction()
     {
-        WriteLog("[Loop] 監視ループ (StartMonitoringAction) を開始します。");
+        Logger.WriteLog("[Loop] 監視ループ (StartMonitoringAction) を開始します。");
         IsStartEnabled = false;
 
         while (!IsForceClose)
         {
             if (_isAccountSwitching)
             {
-                WriteLog("[Loop] アカウント切り替え中のため待機します...");
+                Logger.WriteLog("[Loop] アカウント切り替え中のため待機します...");
+                await Task.Delay(1000);
+                continue;
+            }
+
+            bool isSessionValid = await _crawlerService.VerifyActiveSessionAsync();
+            if (!isSessionValid)
+            {
+                Logger.WriteLog("[Loop Warning] セッションが無効（または再認証画面）です。待機状態に移行します。");
+                StatusText = "セッションが切れました。「ログイン」ボタンから再ログインしてください✨";
+                IsLoginEnabled = true;
+                IsStartEnabled = false;
+
+                // ユーザーが再ログインを完了するまで待機（ポーリング）
+                while (!IsForceClose && !await _crawlerService.CheckLoginStatusAsync())
+                {
+                    await Task.Delay(2000);
+                }
+
+                if (IsForceClose) break;
+
+                StatusText = "再ログイン完了！監視を自動再開します✨";
+                IsLoginEnabled = false;
                 await Task.Delay(1000);
                 continue;
             }
@@ -163,321 +251,90 @@ public class MainViewModel : INotifyPropertyChanged
             try
             {
                 // --------------------------------------------------
-                // ステップ1: 登録者数を取得
+                // ステップ1: 登録者数を取得（アナリティクスへ移動）
                 // --------------------------------------------------
-                WriteLog("[Loop] ステップ1: 登録者数取得を開始します");
+                Logger.WriteLog("[Loop] ステップ1: 登録者数取得を開始します");
                 StatusText = "登録者数を更新中（アナリティクスへ移動）...";
-                
-                string fetchedSub = await FetchSubscriberCountAsync();
 
+                string fetchedSub = await _crawlerService.FetchSubscriberCountAsync();
                 if (_isAccountSwitching) continue;
 
-                WriteLog($"[Loop] 取得完了 登録者数: {fetchedSub}");
+                if (!string.IsNullOrEmpty(fetchedSub))
+                {
+                    _currentSubs = fetchedSub;
+                    UpdateLiveStats(_currentViewers, _currentLikes, _currentSubs);
+                    Logger.WriteLog($"[Loop] 取得完了 登録者数: {_currentSubs}");
+                }
 
                 // --------------------------------------------------
-                // ステップ2: 配信管理画面へ移動して「同接・高評価」を監視
+                // ステップ2: 配信管理画面へ移動して配信枠を選択
                 // --------------------------------------------------
-                WriteLog("[Loop] ステップ2: 配信管理画面へ移動します");
+                Logger.WriteLog("[Loop] ステップ2: 配信管理画面へ移動します");
                 StatusText = "配信管理画面へ移動中...";
 
                 if (_isAccountSwitching) continue;
-
-                _webView.CoreWebView2.Navigate("https://studio.youtube.com/channel/self/livestreaming/manage");
-                
-                await Task.Delay(4000);
+                await _crawlerService.NavigateLiveStreamManageAsync();
 
                 if (_isAccountSwitching) continue;
-
                 StatusText = "配信枠を自動選択中...";
 
-                string selectLiveScript = @"
-                    (() => {
-                        const rows = Array.from(document.querySelectorAll('ytcp-video-row'));
-                        const liveRow = rows.find(row => {
-                            const t = row.innerText;
-                            return (t.includes('ライブ') || t.includes('Live') || t.includes('配信中')) && !t.includes('近日配信');
-                        });
-                        if (liveRow) {
-                            const titleLink = liveRow.querySelector('#video-title') || liveRow.querySelector('a');
-                            if (titleLink) { titleLink.click(); return true; }
-                        }
-                        return false;
-                    })();
-                ";
-
-                bool found = false;
-                for (int i = 0; i < 10; i++)
-                {
-                    if (_isAccountSwitching) break;
-
-                    try
-                    {
-                        // 【対策】JavaScriptの実行がフリーズしないよう、3秒でタイムアウトを設定
-                        var scriptTask = _webView.CoreWebView2.ExecuteScriptAsync(selectLiveScript);
-                        var timeoutTask = Task.Delay(3000);
-
-                        var completedTask = await Task.WhenAny(scriptTask, timeoutTask);
-
-                        if (completedTask == scriptTask)
-                        {
-                            string result = await scriptTask;
-                            if (result == "true")
-                            {
-                                found = true;
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            WriteLog($"[Loop Warning] 配信枠検索JSの実行がタイムアウトしました ({i + 1}/10回目)");
-                        }
-                    }
-                    catch (Exception jsEx)
-                    {
-                        WriteLog($"[Loop Warning] JS実行中にエラーが発生しました: {jsEx.Message}");
-                    }
-
-                    await Task.Delay(1000);
-                }
+                // 配信枠の自動探索（キャンセル条件をラムダ式で渡す）
+                bool found = await _crawlerService.TrySelectLiveStreamAsync(() => _isAccountSwitching || IsForceClose);
 
                 if (_isAccountSwitching) continue;
 
                 if (!found)
                 {
-                    WriteLog("[Loop] 配信中のライブ枠が見つかりませんでした。登録者数を更新してオフライン待機モードに入ります。");
-
-                    // 1. 同接・高評価をクリア
+                    Logger.WriteLog("[Loop] 配信中のライブ枠が見つかりませんでした。");
                     _currentViewers = "0";
                     _currentLikes = "0";
 
-                    // 2. 登録者数の取得を実行（配信画面の処理の後に取得）
-                    StatusText = "登録者数を更新中...";
-                    string fetchedSubss = await FetchSubscriberCountAsync();
-                    
-                    if (_isAccountSwitching) continue;
-
-                    WriteLog($"[Loop] オフライン時 登録者数取得完了: {fetchedSubss}");
-
-                    // 画面カウンターの更新
                     UpdateLiveStats(_currentViewers, _currentLikes, _currentSubs);
 
-                    // 3. ユーザー向けステータス表示
-                    StatusText = $"🍃 配信オフライン（登録者数: {_currentSubs}人）/ 30秒後にリトライ";
+                    // ★ 設定ファイルからリトライ秒数を取得して反映
+                    int retrySeconds = AppSettings.Instance.OfflineRetrySeconds;
+                    StatusText = $"配信オフライン（登録者数: {_currentSubs}人）/ {retrySeconds}秒後にリトライ";
 
-                    // 4. 30秒待機（1秒ごとにアカウント切り替え・終了フラグをチェック）
-                    for (int sec = 0; sec < 30; sec++)
+                    for (int sec = 0; sec < retrySeconds; sec++)
                     {
                         if (_isAccountSwitching || IsForceClose) break;
                         await Task.Delay(1000);
                     }
-
-                    continue; // 次のループ（再び配信管理画面のチェック）へ
+                    continue;
                 }
 
-                WriteLog("[Loop] 配信枠の選択に成功しました。同接監視に入ります (15秒滞在)");
-                StatusText = "配信画面で同接・高評価を取得中...";
-                await Task.Delay(2000);
+                Logger.WriteLog("[Loop] 配信枠の選択に成功しました。VIDEO_IDとステータスの取得を開始します。");
+                await Task.Delay(3000); // 配信コントロールルームの読み込み待ち
 
-                if (_isAccountSwitching) continue;
+                // --------------------------------------------------
+                // ステップ3: VIDEO_IDの取得 ＆ 2号機（チャット）の接続
+                // --------------------------------------------------
+                string videoId = await _crawlerService.ExtractVideoIdAsync();
+                if (!string.IsNullOrEmpty(videoId) && videoId != _currentVideoId)
+                {
+                    _currentVideoId = videoId;
+                    Logger.WriteLog($"[Loop] 新しいVIDEO_IDを検出: {_currentVideoId}。2号機（コメント専用）を接続します。");
+                    await _crawlerService.AttachChatWebViewAsync(_currentVideoId, IsAllChatMode);
+                }
 
-                InjectLiveStatsObserver();
+                // --------------------------------------------------
+                // ステップ4: 配信管理画面で同接・高評価を監視（15秒滞在）
+                // --------------------------------------------------
+                StatusText = "配信画面で同接・高評価・リアクションを取得中...";
+                _crawlerService.InjectLiveStatsObserver();
 
-                await Task.Delay(15000);
+                await Task.Delay(AppSettings.Instance.StayDurationSeconds * 1000);
+
+                _crawlerService.CleanMemoryFootprint();
             }
             catch (Exception ex)
             {
-                WriteLog($"[Loop Exception] ループ処理中に例外が発生しました: {ex}");
+                Logger.WriteLog($"[Loop Exception] ループ処理中に例外が発生しました: {ex}");
                 await Task.Delay(3000);
             }
         }
 
-        WriteLog("[Loop] 監視ループを終了しました。");
-    }
-
-    /// <summary>
-    /// アナリティクス画面へ移動し、「現在の数を表示」から登録者数を取得する専用メソッド
-    /// </summary>
-    private async Task<string> FetchSubscriberCountAsync()
-    {
-        try
-        {
-            WriteLog("[FetchSub] アナリティクス概要へ移動します");
-            _webView.CoreWebView2.Navigate("https://studio.youtube.com/channel/self/analytics/tab-overview");
-            
-            await Task.Delay(10000);
-
-            WriteLog("[FetchSub] 「現在の数を表示」ボタンの探索スクリプトを実行");
-            string clickSeeLiveCountScript = @"
-                (() => {
-                    const findAndClickBtn = (root) => {
-                        if (!root) return false;
-
-                        const directTarget = root.querySelector('#see-explore-subscribers-link, #see_explore_subscribers_button, [id*=""see-explore-subscribers""]');
-                        if (directTarget) {
-                            directTarget.click();
-                            return true;
-                        }
-
-                        const elements = Array.from(root.querySelectorAll('a, button, ytcp-button, ytcp-button-shape'));
-                        for (let el of elements) {
-                            const aria = el.getAttribute ? (el.getAttribute('aria-label') || '') : '';
-                            const title = el.getAttribute ? (el.getAttribute('title') || '') : '';
-                            const txt = el.innerText || el.textContent || '';
-
-                            if (aria.includes('現在の数を表示') || title.includes('現在の数を表示') || txt.includes('現在の数を表示')) {
-                                const linkParent = el.closest('a') || el;
-                                linkParent.click();
-                                return true;
-                            }
-                        }
-
-                        const children = Array.from(root.querySelectorAll('*'));
-                        for (let child of children) {
-                            if (child.shadowRoot) {
-                                if (findAndClickBtn(child.shadowRoot)) return true;
-                            }
-                        }
-                        return false;
-                    };
-
-                    return findAndClickBtn(document);
-                })();
-            ";
-
-            var clicked = await _webView.CoreWebView2.ExecuteScriptAsync(clickSeeLiveCountScript);
-            WriteLog($"[FetchSub] ボタンクリックJS実行結果: {clicked}");
-
-            if (clicked == "true")
-            {
-                await Task.Delay(3000);
-            }
-
-            WriteLog("[FetchSub] 数字抽出スクリプトを実行");
-            string getSubScript = @"
-                    (() => {
-                        const getShadowSubCount = (root) => {
-                            if (!root) return '';
-
-                            const counterHost = root.querySelector('yta-smooth-counter, #counter');
-                            if (counterHost) {
-                                const allNodes = Array.from(counterHost.querySelectorAll('*'));
-                                let digitsStr = '';
-                                
-                                for (let node of allNodes) {
-                                    if (node.children.length === 0 && node.textContent.trim()) {
-                                        const num = node.textContent.replace(/[^0-9]/g, '');
-                                        if (num) {
-                                            digitsStr += num;
-                                        }
-                                    }
-                                }
-
-                                if (digitsStr) return digitsStr; 
-                            }
-
-                            const children = Array.from(root.querySelectorAll('*'));
-                            for (let child of children) {
-                                if (child.shadowRoot) {
-                                    const res = getShadowSubCount(child.shadowRoot);
-                                    if (res) return res;
-                                }
-                            }
-                            return '';
-                        };
-
-                        return getShadowSubCount(document);
-                    })();
-            ";
-
-            var subResult = await _webView.CoreWebView2.ExecuteScriptAsync(getSubScript);
-            WriteLog($"[FetchSub] JS生データ: {subResult}");
-
-            if (!string.IsNullOrEmpty(subResult) && subResult != "null" && subResult != "\"\"")
-            {
-                string cleanSubs = new string(subResult.Where(char.IsDigit).ToArray());
-                WriteLog($"[FetchSub] 数字抽出結果: cleanSubs='{cleanSubs}'");
-
-                if (!string.IsNullOrEmpty(cleanSubs) && cleanSubs != "0")
-                {
-                    _currentSubs = cleanSubs;
-                    UpdateLiveStats(_currentViewers, _currentLikes, _currentSubs);
-                    return cleanSubs;
-                }
-                else
-                {
-                    WriteLog("[FetchSub] cleanSubsが空または0のため更新をスキップしました");
-                }
-            }
-            else
-            {
-                WriteLog("[FetchSub] JSからの返り値が空/nullでした");
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteLog($"[Subscriber Fetch Error] 登録者数取得中に例外が発生しました: {ex}");
-        }
-
-        return _currentSubs;
-    }
-
-    private void WriteLog(string message)
-    {
-        try
-        {
-            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log.txt");
-            string logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}";
-            System.IO.File.AppendAllText(logPath, logLine);
-        }
-        catch { /* ログ書き込みエラーでアプリを落とさないための空キャッチ */ }
-    }
-
-    /// <summary>
-    /// 配信画面滞在中に【5秒おき】で同接・高評価を送信するJS
-    /// </summary>
-    private async void InjectLiveStatsObserver()
-    {
-        try
-        {
-            string observerScript = @"
-                (() => {
-                    const fetchLiveStats = () => {
-                        let viewers = '0';
-                        let likes = '0';
-
-                        const allCards = Array.from(document.querySelectorAll('ytcp-quick-stat, .metric-container, div'));
-
-                        allCards.forEach(card => {
-                            const txt = card.innerText || '';
-                            if (txt.includes('同時視聴者数') || txt.includes('Concurrent viewers')) {
-                                const valEl = card.querySelector('.value, #value, .metric-value, .value-text');
-                                if (valEl) viewers = valEl.innerText.trim();
-                            }
-                            if (txt.includes('高評価') || txt.includes('Likes')) {
-                                const valEl = card.querySelector('.value, #value, .metric-value, .value-text');
-                                if (valEl) likes = valEl.innerText.trim();
-                            }
-                        });
-
-                        window.chrome.webview.postMessage(JSON.stringify({
-                            type: 'LIVE_STATS',
-                            viewers: viewers.replace(/[^0-9]/g, ''),
-                            likes: likes.replace(/[^0-9]/g, '')
-                        }));
-                    };
-
-                    fetchLiveStats();
-                    setInterval(fetchLiveStats, 5000);
-                })();
-            ";
-
-            await _webView.CoreWebView2.ExecuteScriptAsync(observerScript);
-            WriteLog("[Observer] 5秒間隔のリアルタイム監視スクリプトの注入に成功しました");
-        }
-        catch (Exception ex)
-        {
-            WriteLog($"[Observer Error] スクリプト注入時に例外が発生しました: {ex}");
-        }
+        Logger.WriteLog("[Loop] 監視ループを終了しました。");
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -500,11 +357,102 @@ public class MainViewModel : INotifyPropertyChanged
                     string likes = root.TryGetProperty("likes", out var l) ? l.GetString() ?? "0" : "0";
                     UpdateLiveStats(viewers, likes, _currentSubs);
                 }
+                else if (msgType == "CHAT_MESSAGE")
+                {
+                    string author = root.TryGetProperty("author", out var a) ? a.GetString() ?? "" : "";
+                    string channelId = root.TryGetProperty("authorId", out var id) ? id.GetString() ?? "" : "";
+                    string iconUrl = "";
+                    if (root.TryGetProperty("avatar", out var av)) iconUrl = av.GetString() ?? "";
+                    else if (root.TryGetProperty("avatarUrl", out var av2)) iconUrl = av2.GetString() ?? "";                    
+                    bool isMember = root.TryGetProperty("isMember", out var m) && m.GetBoolean();
+                    int jewels = root.TryGetProperty("jewels", out var j) ? j.GetInt32() : 0;
+
+                    string broadcastJson = rawJson;
+
+                    if (!string.IsNullOrEmpty(author))
+                    {
+                        var listener = _listenerService.RecordComment(author, channelId, iconUrl, isMember);
+
+                        // ★ ジュエルが含まれている場合は枠内ジュエル数を加算
+                        if (jewels > 0)
+                        {
+                            _listenerService.RecordGiftOrJewel(author, channelId, iconUrl, 0, jewels);
+                            Logger.WriteLog($"💎 [検知] {author} さんから {jewels} ジュエルを受信しました！");
+                        }
+
+                        // クライアント側（HTML側）で初見演出や回数バッジを出せるよう、既存JSONを拡張
+                        try
+                        {
+                            var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
+                            if (dict != null)
+                            {
+                                dict["commentCount"] = listener.CommentCount;
+                                dict["isFirstTime"] = (listener.CommentCount == 1);
+                                dict["currentGifts"] = listener.CurrentGifts;
+                                dict["currentJewels"] = listener.CurrentJewels;
+                                broadcastJson = JsonSerializer.Serialize(dict);
+                            }
+                        }
+                        catch
+                        {
+                            broadcastJson = rawJson;
+                        }
+                    }
+
+                    _ = _serverService.BroadcastAsync(broadcastJson);
+                }
+                else if (msgType == "GIFT_EVENT")
+                {
+                    // ★ メンバーシップギフト購入の検知
+                    string author = root.TryGetProperty("author", out var a) ? a.GetString() ?? "" : "";
+                    string channelId = root.TryGetProperty("authorId", out var id) ? id.GetString() ?? "" : "";
+                    string iconUrl = root.TryGetProperty("avatar", out var av) ? av.GetString() ?? "" : "";
+                    int gifts = root.TryGetProperty("gifts", out var g) ? g.GetInt32() : 1;
+
+                    if (!string.IsNullOrEmpty(author))
+                    {
+                        var listener = _listenerService.RecordGiftOrJewel(author, channelId, iconUrl, gifts, 0);
+                        Logger.WriteLog($"🎁 [検知] {author} さんからメンギフ {gifts} 個を受信しました！");
+
+                        // OBS等のオーバーレイ画面にもメンギフ通知を配信
+                        try
+                        {
+                            var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
+                            if (dict != null)
+                            {
+                                dict["currentGifts"] = listener.CurrentGifts;
+                                _ = _serverService.BroadcastAsync(JsonSerializer.Serialize(dict));
+                            }
+                        }
+                        catch
+                        {
+                            _ = _serverService.BroadcastAsync(rawJson);
+                        }
+                    }
+                }
+                else if (msgType == "REACTION")
+                {
+                    // リアクション転送
+                    Logger.WriteLog($"[Reaction] リアクション検知: {rawJson}");
+                    _ = _serverService.BroadcastAsync(rawJson);
+                }
+                else if (msgType == "RAW_CHAT_DEBUG")
+                {
+                string tag = root.TryGetProperty("tag", out var tg) ? tg.GetString() ?? "" : "";
+                string text = root.TryGetProperty("text", out var tx) ? tx.GetString() ?? "" : "";
+                string html = root.TryGetProperty("html", out var ht) ? ht.GetString() ?? "" : "";
+
+                // 空要素は除外してログに出力
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    Logger.WriteLog($"[RAW_DOM] <{tag}> Text: {text} | HTML: {html}");
+                }
+            }
             }
         }
         catch (Exception ex)
         {
-            WriteLog($"[MessageReceived Error] WebMessage受信用ロジックで例外が発生しました: {ex.Message}");
+            Logger.WriteLog($"[MessageReceived Error] 例外が発生しました: {ex.Message}");
         }
     }
 
@@ -512,174 +460,29 @@ public class MainViewModel : INotifyPropertyChanged
     {
         if (!string.IsNullOrEmpty(viewers)) _currentViewers = viewers;
         if (!string.IsNullOrEmpty(likes)) _currentLikes = likes;
+        if (!string.IsNullOrEmpty(subs) && subs != "0") _currentSubs = subs;
 
-        if (!string.IsNullOrEmpty(subs) && subs != "0")
-        {
-            _currentSubs = subs;
-        }
-        
-        string message = $"{{\"viewers\":\"{_currentViewers}\", \"likes\":\"{_currentLikes}\", \"subs\":\"{_currentSubs}\"}}";
+        string message = $"{{\"type\":\"LIVE_STATS\", \"viewers\":\"{_currentViewers}\", \"likes\":\"{_currentLikes}\", \"subs\":\"{_currentSubs}\"}}";
 
         if (_lastBroadcastMessage != message)
         {
             _lastBroadcastMessage = message;
-            BroadcastWebSocketMessage(message);
+            _serverService.LastBroadcastMessage = message;
+            _ = _serverService.BroadcastAsync(message);
 
             StatusText = $"同接: {_currentViewers}人 | 高評価: {_currentLikes} | 登録者: {_currentSubs}人";
-            WriteLog($"[Update] 状態を更新・送信しました -> 同接: {_currentViewers}, 高評価: {_currentLikes}, 登録者: {_currentSubs}");
+            Logger.WriteLog($"[Update] 状態更新 -> 同接: {_currentViewers}, 高評価: {_currentLikes}, 登録者: {_currentSubs}");
         }
     }
-
-    private Task WaitForPageLoadAsync()
-    {
-        var tcs = new TaskCompletionSource<bool>();
-        EventHandler<CoreWebView2NavigationCompletedEventArgs> handler = null!;
-        handler = (s, e) => {
-            _webView.CoreWebView2.NavigationCompleted -= handler;
-            tcs.SetResult(true);
-        };
-        _webView.CoreWebView2.NavigationCompleted += handler;
-        return tcs.Task;
-    }
-
-    #region WebSocket & 静的ファイルサーバー
-
-    private async void StartWebSocketServer()
-    {
-        try
-        {
-            var listener = new HttpListener();
-            listener.Prefixes.Add("http://localhost:8081/");
-            listener.Start();
-            WriteLog("[Server] WebSocketサーバーが起動しました (http://localhost:8081/)");
-
-            while (true)
-            {
-                try
-                {
-                    var context = await listener.GetContextAsync();
-                    if (context.Request.IsWebSocketRequest)
-                    {
-                        var wsContext = await context.AcceptWebSocketAsync(null);
-                        var socket = wsContext.WebSocket;
-                        lock (_sockets) { _sockets.Add(socket); }
-
-                        WriteLog("[Server] 新しいWebSocketクライアントが接続されました");
-
-                        string initialMessage = !string.IsNullOrEmpty(_lastBroadcastMessage) 
-                            ? _lastBroadcastMessage 
-                            : $"{{\"viewers\":\"{_currentViewers}\", \"likes\":\"{_currentLikes}\", \"subs\":\"{_currentSubs}\"}}";
-
-                        byte[] buffer = Encoding.UTF8.GetBytes(initialMessage);
-                        await socket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
-
-                        _ = HandleSocketDisconnect(socket);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    WriteLog($"[Server Exec Error] WebSocket受け入れ時にエラーが発生しました: {ex.Message}");
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteLog($"[Server Start Error] WebSocketサーバーの開始に失敗しました: {ex.Message}");
-        }
-    }
-
-    private async Task HandleSocketDisconnect(WebSocket socket)
-    {
-        var buffer = new byte[1024];
-        try
-        {
-            while (socket.State == WebSocketState.Open)
-            {
-                var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Close) break;
-            }
-        }
-        catch { }
-        finally
-        {
-            lock (_sockets) { _sockets.Remove(socket); }
-            socket.Dispose();
-            WriteLog("[Server] WebSocketクライアントが切断されました");
-        }
-    }
-
-    private async void BroadcastWebSocketMessage(string message)
-    {
-        byte[] buffer = Encoding.UTF8.GetBytes(message);
-        List<WebSocket> listCopy;
-        lock (_sockets) { listCopy = _sockets.ToList(); }
-
-        foreach (var socket in listCopy)
-        {
-            if (socket.State == WebSocketState.Open)
-            {
-                try
-                {
-                    await socket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    WriteLog($"[Broadcast Error] メッセージ送信失敗: {ex.Message}");
-                }
-            }
-        }
-    }
-
-    private void StartStaticFileServer()
-    {
-        Task.Run(async () =>
-        {
-            try
-            {
-                var listener = new HttpListener();
-                listener.Prefixes.Add("http://localhost:8080/");
-                listener.Start();
-                WriteLog("[StaticServer] 静的ファイルサーバーが起動しました (http://localhost:8080/)");
-
-                while (true)
-                {
-                    try
-                    {
-                        var context = await listener.GetContextAsync();
-                        string rawPath = context.Request.Url?.LocalPath.TrimStart('/') ?? "";
-                        string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, rawPath);
-
-                        if (File.Exists(filePath))
-                        {
-                            byte[] buffer = await File.ReadAllBytesAsync(filePath);
-                            context.Response.ContentLength64 = buffer.Length;
-                            await context.Response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-                        }
-                        else
-                        {
-                            context.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                        }
-                        context.Response.OutputStream.Close();
-                    }
-                    catch { }
-                }
-            }
-            catch (Exception ex)
-            {
-                WriteLog($"[StaticServer Error] 静的ファイルサーバーの開始に失敗しました: {ex.Message}");
-            }
-        });
-    }
-
-    #endregion
 
     private async Task ExecuteQuit()
     {
-        WriteLog("[Quit] アプリケーションの終了処理を開始します。");
         IsForceClose = true;
         StatusText = "終了処理中...";
-        await Task.Delay(300);
-        Application.Current.Shutdown();
+
+        _listenerService.Save(); // ★ リスナー情報の最終保存
+        _serverService.Dispose(); // ポートとソケットを安全に開放[cite: 4]
+        await Task.Delay(300); //[cite: 4]
+        Application.Current.Shutdown(); //[cite: 4]
     }
 }

@@ -2,15 +2,21 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="つむメーター" Height="500" Width="450"
-        WindowStartupLocation="CenterScreen" Background="#FFF0F4"
-        >
+        Title="つむメーター" Height="520" Width="440"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        FontFamily="BIZ UDPMaruGothic, HG丸ｺﾞｼｯｸM-PRO, Meiryo UI, Segoe UI Emoji, sans-serif"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        TextOptions.TextHintingMode="Fixed"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
     
     <Window.Resources>
         <Storyboard x:Key="OpenMenu">
             <DoubleAnimation Storyboard.TargetName="SideMenu" 
                              Storyboard.TargetProperty="Width" 
-                             To="200" Duration="0:0:0.3">
+                             To="220" Duration="0:0:0.25">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
@@ -19,36 +25,68 @@
         <Storyboard x:Key="CloseMenu">
             <DoubleAnimation Storyboard.TargetName="SideMenu" 
                              Storyboard.TargetProperty="Width" 
-                             To="0" Duration="0:0:0.3">
+                             To="0" Duration="0:0:0.2">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
         </Storyboard>
 
-        <Style x:Key="YumekawaButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="#777"/>
-            <Setter Property="FontSize" Value="15"/>
-            <Setter Property="FontWeight" Value="Bold"/>
+        <!-- ✨ ぷっくりパステルボタン -->
+        <Style x:Key="MilkyButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
-                            <Border x:Name="Shadow" Background="#10000000" CornerRadius="25" Margin="1,2,-1,-2"/>
+                            <!-- ドロップシャドウ風の下地 -->
+                            <Border x:Name="Shadow" Background="#18475569" CornerRadius="22" Margin="1,2,-1,-2"/>
+                            <!-- ボタン本体 -->
                             <Border x:Name="MainBorder" Background="{TemplateBinding Background}" 
-                                    CornerRadius="25" BorderThickness="3" BorderBrush="White">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    CornerRadius="22" BorderThickness="2" BorderBrush="White">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.FontFamily="Segoe UI Emoji, BIZ UDPGothic, Yu Gothic UI"/>
                             </Border>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="MainBorder" Property="Background" Value="White"/>
-                                <Setter Property="Foreground" Value="{Binding Background, RelativeSource={RelativeSource TemplatedParent}}"/>
-                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="Foreground" Value="#334155"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="MainBorder" Property="Background" Value="#F1F5F9"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="MainBorder" Property="Background" Value="#F0F0F0"/>
-                                <Setter Property="Foreground" Value="#CCC"/>
+                                <Setter TargetName="MainBorder" Property="Background" Value="#E2E8F0"/>
+                                <Setter Property="Foreground" Value="#94A3B8"/>
+                                <Setter TargetName="MainBorder" Property="BorderBrush" Value="#CBD5E1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- タイトルバー操作ボタン -->
+        <Style x:Key="CaptionBtnStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="12">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#2064748B"/>
+                                <Setter Property="Foreground" Value="#1E293B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -57,85 +95,130 @@
         </Style>
     </Window.Resources>
 
-    <Grid>
-        <Grid.Background>
-            <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="1.2" RadiusY="1.2">
-                <GradientStop Color="#FDF2F8" Offset="0"/>
-                <GradientStop Color="#F0F9FF" Offset="0.5"/>
-                <GradientStop Color="#F5F3FF" Offset="1"/>
-            </RadialGradientBrush>
-        </Grid.Background>
-
-        <!-- WebView2追加（初回ログイン時以外は非表示） -->
-        <wv2:WebView2 x:Name="webView" Visibility="Collapsed" Panel.ZIndex="10" Margin="10,60,10,10"/>
+    <!-- 外枠角丸カード -->
+    <Border CornerRadius="24" BorderBrush="#E2E8F0" BorderThickness="1.5" Background="#F8FAFC" ClipToBounds="True">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="25" Opacity="0.15" ShadowDepth="4" Color="#64748B"/>
+        </Border.Effect>
 
         <Grid>
-            <Button Content="≡" HorizontalAlignment="Left" VerticalAlignment="Top"
-            Width="40" Height="40" Margin="10"
-            Background="Transparent" BorderBrush="Transparent" FontSize="24"
-            Foreground="#94A3B8" FontWeight="Bold"
-            Command="{Binding OpenMenuCommand}"/>
+            <!-- 🌸 しっかり発色するパステルグラデーション -->
+            <Grid.Background>
+                <RadialGradientBrush Center="0.5,0.4" GradientOrigin="0.5,0.4" RadiusX="1.1" RadiusY="1.1">
+                    <GradientStop Color="#FDE8EF" Offset="0"/>
+                    <GradientStop Color="#E0F2FE" Offset="0.55"/>
+                    <GradientStop Color="#EDE9FE" Offset="1"/>
+                </RadialGradientBrush>
+            </Grid.Background>
 
-            <StackPanel Margin="35">
-                <TextBlock Text="🌙 *･ﾟViewer Monitor ･ﾟ*✨" 
-                           FontSize="24" Foreground="#94A3B8" 
-                           HorizontalAlignment="Center" Margin="0,0,0,30" FontWeight="Bold">
-                    <TextBlock.Effect>
-                        <DropShadowEffect Color="White" BlurRadius="10" ShadowDepth="0" Opacity="1"/>
-                    </TextBlock.Effect>
-                </TextBlock>
-                
-                <Border Background="#99FFFFFF" CornerRadius="20" Margin="0,0,0,20" Padding="15" BorderThickness="2" BorderBrush="White">
-                    <StackPanel>
-                        <TextBlock Text="STATUS / GUIDE" FontSize="10" Foreground="#CBD5E1" TextAlignment="Center" Margin="0,0,0,5" FontWeight="Bold"/>
-                        <TextBlock Text="{Binding StatusText}" TextAlignment="Center" FontSize="14" Foreground="#64748B" FontWeight="Bold" TextWrapping="Wrap"/>
+            <!-- 1号機：巡回・ログイン用WebView2 -->
+            <wv2:WebView2 x:Name="webView" Visibility="Collapsed" Panel.ZIndex="10" Margin="10,60,10,10"/>
+
+            <!-- 2号機：コメント専用WebView2（裏で稼働） -->
+            <wv2:WebView2 x:Name="chatWebView" Visibility="Collapsed" />
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="46"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 自作タイトルバー -->
+                <Grid Grid.Row="0" Background="#30FFFFFF" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                        <Button Content="≡" HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Width="36" Height="36" Margin="12,0,0,0"
+                            Style="{StaticResource CaptionBtnStyle}" FontSize="20"
+                            Command="{Binding OpenMenuCommand}"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="つむメーター" FontSize="14" FontWeight="Bold" Foreground="#475569"/>
+                        <TextBlock Text=" ✨" FontSize="12" Foreground="#8B5CF6"/>
                     </StackPanel>
-                </Border>
 
-                <Button Content="🦄 初回ログイン" 
-                        Command="{Binding LoginCommand}" 
-                        IsEnabled="{Binding IsLoginEnabled}"
-                        Style="{StaticResource YumekawaButtonStyle}" Background="#FFD1DC"
-                        HorizontalAlignment="Center" Width="280" Height="50" Margin="0,0,0,15"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
+                        <Button Content="—" Width="30" Height="30" Style="{StaticResource CaptionBtnStyle}" Click="BtnMinimize_Click" ToolTip="最小化"/>
+                        <Button x:Name="BtnMaximize" Content="▢" Width="30" Height="30" Style="{StaticResource CaptionBtnStyle}" Click="BtnMaximize_Click" ToolTip="最大化"/>
+                        <Button Content="✕" Width="30" Height="30" Style="{StaticResource CaptionBtnStyle}" Click="BtnClose_Click" ToolTip="閉じる"/>
+                    </StackPanel>
+                </Grid>
 
-                <Button Content="☁️ チェックを開始" 
-                        Command="{Binding StartCommand}" 
-                        IsEnabled="{Binding IsStartEnabled}"
-                        Style="{StaticResource YumekawaButtonStyle}" Background="#B3E5FC"
-                        HorizontalAlignment="Center" Width="280" Height="50" Margin="0,0,0,15"/>
+                <!-- メインエリア -->
+                <StackPanel Grid.Row="1" Margin="30,10,30,24" VerticalAlignment="Center">
+                    <TextBlock Text="つむメーター" 
+                               FontSize="22" Foreground="#475569" 
+                               HorizontalAlignment="Center" Margin="0,0,0,20" FontWeight="Bold">
+                        <TextBlock.Effect>
+                            <DropShadowEffect Color="White" BlurRadius="6" ShadowDepth="0" Opacity="0.8"/>
+                        </TextBlock.Effect>
+                    </TextBlock>
+                    
+                    <!-- ステータス表示カード -->
+                    <Border Background="White" CornerRadius="18" Margin="0,0,0,24" Padding="16" BorderThickness="1.5" BorderBrush="#E2E8F0">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" Opacity="0.08" ShadowDepth="2" Color="#64748B"/>
+                        </Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="STATUS" FontSize="10" Foreground="#8B5CF6" TextAlignment="Center" Margin="0,0,0,4" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding StatusText}" TextAlignment="Center" FontSize="13" Foreground="#334155" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
 
-                <Button Content="× CLOSE" 
-                        Command="{Binding QuitCommand}"
-                        Style="{StaticResource YumekawaButtonStyle}" Background="#FFD8BE" 
-                        HorizontalAlignment="Center" Width="180" Height="40" FontSize="12" Margin="0,10,0,10"/>
-            </StackPanel>
+                    <!-- 🦄 パステルピンク -->
+                    <Button Content="🦄 初回ログイン" 
+                            Command="{Binding LoginCommand}" 
+                            IsEnabled="{Binding IsLoginEnabled}"
+                            Style="{StaticResource MilkyButtonStyle}" Background="#FBCFE8"
+                            HorizontalAlignment="Center" Width="260" Height="48" Margin="0,0,0,12"/>
+
+                    <!-- ☁️ パステルアクア -->
+                    <Button Content="☁️ チェックを開始" 
+                            Command="{Binding StartCommand}" 
+                            IsEnabled="{Binding IsStartEnabled}"
+                            Style="{StaticResource MilkyButtonStyle}" Background="#BAE6FD"
+                            HorizontalAlignment="Center" Width="260" Height="48" Margin="0,0,0,12"/>
+
+                    <!-- 終了ボタン -->
+                    <Button Content="終了" 
+                            Command="{Binding QuitCommand}"
+                            Style="{StaticResource MilkyButtonStyle}" Background="#FED7AA" 
+                            HorizontalAlignment="Center" Width="140" Height="36" FontSize="12" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- サイドメニュー -->
+            <Border x:Name="SideMenu" Width="0" HorizontalAlignment="Left" 
+                    Background="#F8FAFC" BorderBrush="#CBD5E1" BorderThickness="0,0,2,0">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="16" Opacity="0.12" Direction="0" ShadowDepth="3" Color="#475569"/>
+                </Border.Effect>
+                <Grid Margin="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Button Grid.Row="0" Content="✕" Command="{Binding CloseMenuCommand}" 
+                            HorizontalAlignment="Right" Width="28" Height="28"
+                            Style="{StaticResource CaptionBtnStyle}"/>
+                    
+                    <StackPanel Grid.Row="1" Margin="0,15,0,0">
+                        <TextBlock Text="MENU" FontSize="12" FontWeight="Bold" Foreground="#64748B" 
+                                   Margin="0,0,0,14" HorizontalAlignment="Center"/>
+                        
+                        <Button Content="🎨 テンプレート選択" 
+                                Style="{StaticResource MilkyButtonStyle}" Background="White"
+                                Height="42" Margin="0,4" Command="{Binding OpenTemplateWindowCommand}"/>
+                        
+                        <Button Content="⚙️ 基本設定" 
+                                Style="{StaticResource MilkyButtonStyle}" Background="White"
+                                Height="42" Margin="0,4" Command="{Binding OpenBasicSettingsWindowCommand}"/>
+                                
+                        <Button Content="👥 リスナー一覧" 
+                                Style="{StaticResource MilkyButtonStyle}" Background="White"
+                                Height="42" Margin="0,4" Command="{Binding OpenListenerWindowCommand}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Grid>
-
-        <Border x:Name="SideMenu" Width="0" HorizontalAlignment="Left" 
-                Background="#EEFDF2F8" BorderBrush="White" BorderThickness="0,0,2,0">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="15" Opacity="0.1" Direction="0" ShadowDepth="2"/>
-            </Border.Effect>
-            <StackPanel Margin="15">
-                <Button Content="×" Command="{Binding CloseMenuCommand}" 
-                        HorizontalAlignment="Right" Width="30" Height="30"
-                        Background="Transparent" BorderBrush="Transparent" 
-                        Foreground="#94A3B8" FontSize="20" FontWeight="Bold"/>
-                
-                <TextBlock Text="MENU" FontSize="16" FontWeight="Bold" Foreground="#94A3B8" 
-                           Margin="0,20,0,20" HorizontalAlignment="Center"/>
-                
-                <Button Content="🎨 テンプレート選択" 
-                        Style="{StaticResource YumekawaButtonStyle}" Background="White"
-                        Height="45" Margin="0,5" Command="{Binding OpenTemplateWindowCommand}"/>
-                
-                <Button Content="⚙️ 基本設定" 
-                        Style="{StaticResource YumekawaButtonStyle}" Background="White"
-                        Height="45" Margin="0,5" Command="{Binding OpenBasicSettingsWindowCommand}"/>
-                
-                <Separator Background="White" Margin="0,20" Opacity="0.5"/>
-                <!-- <TextBlock Text="ver 1.0.0" FontSize="10" Foreground="#CBD5E1" HorizontalAlignment="Center"/> -->
-            </StackPanel>
-        </Border>
-    </Grid>
+    </Border>
 </Window>

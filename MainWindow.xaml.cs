@@ -1,6 +1,8 @@
-﻿using System.Windows;
+﻿using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Media.Animation;
 using Microsoft.Web.WebView2.Core;
+using System.Windows.Input;
 
 namespace YoutubeCounterApp;
 
@@ -11,9 +13,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _viewModel = new MainViewModel(webView);
+
+        // XAML側に配置した2つのWebView2 (webView と chatWebView) をViewModelへ渡します
+        _viewModel = new MainViewModel(webView, chatWebView);
         this.DataContext = _viewModel;
 
+        // 1号機（巡回・ログイン用）のページ遷移完了イベント
         webView.NavigationCompleted += WebView_NavigationCompleted;
     }
 
@@ -21,26 +26,25 @@ public partial class MainWindow : Window
     public void OpenMenu() => ((Storyboard)this.Resources["OpenMenu"]).Begin();
     public void CloseMenu() => ((Storyboard)this.Resources["CloseMenu"]).Begin();
 
-        // MainWindow.xaml.cs 内に追加
+    /// <summary>
+    /// YouTubeアカウント切り替え処理
+    /// </summary>
     public async Task SwitchYoutubeAccountAsync()
     {
-        // 1. 定期監視ループを一時停止（フラグ等があれば false に設定）
-        // _isMonitoring = false; 
-
         if (webView != null)
         {
             _viewModel._isAccountSwitching = true;
 
+            // 1号機を表示してユーザーにアカウントを選択してもらう
             webView.Visibility = Visibility.Visible;
-            
+
             if (webView.CoreWebView2 == null)
             {
                 await webView.EnsureCoreWebView2Async();
             }
 
-            // Googleのアカウント選択画面（選択後はStudioへ戻る）へ遷移
+            // Googleのアカウント選択画面へ遷移
             string switchUrl = "https://www.youtube.com/channel_switcher";
-            
             webView.CoreWebView2.Navigate(switchUrl);
         }
     }
@@ -74,12 +78,62 @@ public partial class MainWindow : Window
             // 3. 無事に YouTube Studio に到達したら完了処理を行う
             if (currentUrl.Contains("studio.youtube.com"))
             {
-                // 1. WebView2 を再び隠す（非表示にする）
+                // 1号機（WebView2）を再び非表示に戻す
                 webView.Visibility = Visibility.Collapsed;
 
-                // 2. フラグを下ろして監視ループを再開させる！
+                // フラグを下ろして監視ループを再開させる
                 _viewModel._isAccountSwitching = false;
             }
         }
     }
+
+ // --------------------------------------------------
+        // 自作タイトルバー用イベントハンドラー
+        // --------------------------------------------------
+
+        // タイトルバーを掴んでウィンドウ移動 ＆ ダブルクリックで最大化切り替え
+        private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                ToggleMaximize();
+            }
+            else if (e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
+            {
+                this.DragMove();
+            }
+        }
+
+        // 最小化ボタン
+        private void BtnMinimize_Click(object sender, RoutedEventArgs e)
+        {
+            this.WindowState = WindowState.Minimized;
+        }
+
+        // 最大化ボタン
+        private void BtnMaximize_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleMaximize();
+        }
+
+        // 最大化 ↔ 通常サイズの切り替え
+        private void ToggleMaximize()
+        {
+            if (this.WindowState == WindowState.Maximized)
+            {
+                this.WindowState = WindowState.Normal;
+                if (BtnMaximize != null) BtnMaximize.Content = "▢";
+            }
+            else
+            {
+                this.WindowState = WindowState.Maximized;
+                if (BtnMaximize != null) BtnMaximize.Content = "❐";
+            }
+        }
+
+        // 閉じるボタン
+        private void BtnClose_Click(object sender, RoutedEventArgs e)
+        {
+            this.Close();
+        }
 }
