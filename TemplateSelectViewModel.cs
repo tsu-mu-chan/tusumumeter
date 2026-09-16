@@ -7,20 +7,18 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
-using System.Text.RegularExpressions;
 
 namespace YoutubeCounterApp
 {
     public class TemplateSelectViewModel : INotifyPropertyChanged
     {
-        private static readonly string[] DefaultCategories = { "Counter","ManualCounter", "Comment", "Reaction", "Clock" };
+        private static readonly string[] DefaultCategories = { "Counter", "ManualCounter", "Comment", "Reaction", "Clock" };
         private static readonly string[] ImageExtensions = { ".gif", ".png", ".jpg", ".jpeg" };
 
-        private readonly string _settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
         private readonly string _templatesRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "templates");
 
         public ObservableCollection<TemplateInfo> Templates { get; } = new();
@@ -44,7 +42,7 @@ namespace YoutubeCounterApp
         #endregion
 
         #region カテゴリ・フィルタ切り替え
-        private int _selectedTabIndex = 0;
+        private int _selectedTabIndex;
         public int SelectedTabIndex
         {
             get => _selectedTabIndex;
@@ -59,7 +57,7 @@ namespace YoutubeCounterApp
                     {
                         0 => "All",
                         1 => "Counter",
-                        2 => "ManualCounter", 
+                        2 => "ManualCounter",
                         3 => "Comment",
                         4 => "Reaction",
                         5 => "Clock",
@@ -80,6 +78,7 @@ namespace YoutubeCounterApp
                 {
                     _selectedCategory = value;
                     OnPropertyChanged();
+                    Logger.WriteLog($"[TemplateFilter] 表示カテゴリ切替: {_selectedCategory}");
                     TemplatesView?.Refresh();
                 }
             }
@@ -95,7 +94,7 @@ namespace YoutubeCounterApp
 
         public TemplateSelectViewModel()
         {
-            Logger.WriteLog("TemplateSelectViewModel の初期化を開始します。");
+            Logger.WriteLog("[Init] TemplateSelectViewModel の初期化を開始します。");
 
             AddTemplateCommand = new RelayCommand(_ => AddTemplate());
             OpenTemplateCommand = new RelayCommand(param => OpenTemplateFolder(param as TemplateInfo));
@@ -111,6 +110,7 @@ namespace YoutubeCounterApp
             LoadSettings();
 
             SelectedTabIndex = 0;
+            Logger.WriteLog("[Init] TemplateSelectViewModel の初期化が完了しました。");
         }
 
         private bool FilterTemplates(object item)
@@ -157,7 +157,7 @@ namespace YoutubeCounterApp
                     Templates.Add(CreateTemplateInfo(folderName, subDir, htmlPath, previewPath, categoryName, $"{folderName} のテンプレート"));
                 }
 
-                // パターンB: ファイル直置き形式（例: templates/Comment/Comment_Blue.html）
+                // パターンB: 単一HTML直置き形式（例: templates/Comment/Comment_Blue.html）
                 foreach (var htmlFile in Directory.GetFiles(categoryDir, "*.html"))
                 {
                     string baseName = Path.GetFileNameWithoutExtension(htmlFile);
@@ -167,23 +167,32 @@ namespace YoutubeCounterApp
                 }
             }
 
-            Logger.WriteLog($"テンプレートを {Templates.Count} 件読み込みました。");
+            Logger.WriteLog($"[TemplateLoad] テンプレート全 {Templates.Count} 件をロードしました。");
         }
 
         private void EnsureCategoryDirectories()
         {
-            if (!Directory.Exists(_templatesRoot))
+            try
             {
-                Directory.CreateDirectory(_templatesRoot);
-            }
-
-            foreach (var category in DefaultCategories)
-            {
-                string categoryPath = Path.Combine(_templatesRoot, category);
-                if (!Directory.Exists(categoryPath))
+                if (!Directory.Exists(_templatesRoot))
                 {
-                    Directory.CreateDirectory(categoryPath);
+                    Directory.CreateDirectory(_templatesRoot);
+                    Logger.WriteLog($"[TemplateDir] ルートディレクトリを作成しました: {_templatesRoot}");
                 }
+
+                foreach (var category in DefaultCategories)
+                {
+                    string categoryPath = Path.Combine(_templatesRoot, category);
+                    if (!Directory.Exists(categoryPath))
+                    {
+                        Directory.CreateDirectory(categoryPath);
+                        Logger.WriteLog($"[TemplateDir] カテゴリディレクトリを作成しました: {category}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[TemplateDir Error] ディレクトリ作成中に例外: {ex.Message}");
             }
         }
 
@@ -199,7 +208,6 @@ namespace YoutubeCounterApp
 
         private static TemplateInfo CreateTemplateInfo(string name, string folderPath, string htmlPath, string previewPath, string category, string description)
         {
-            // 1. カテゴリごとのデフォルト値
             int width = category switch
             {
                 "Clock" => 360,
@@ -219,7 +227,6 @@ namespace YoutubeCounterApp
                 _ => 120
             };
 
-            // 2. HTMLから指定サイズを自動検出（あれば上書き）
             var htmlSize = TryExtractSizeFromHtml(htmlPath);
             if (htmlSize.HasValue)
             {
@@ -245,12 +252,16 @@ namespace YoutubeCounterApp
         {
             if (template?.LocalPath != null && Directory.Exists(template.LocalPath))
             {
-                Logger.WriteLog($"テンプレートフォルダを開きます: {template.LocalPath}");
+                Logger.WriteLog($"[Explorer] テンプレートフォルダを開きます: {template.LocalPath}");
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = template.LocalPath,
                     UseShellExecute = true
                 });
+            }
+            else
+            {
+                Logger.WriteLog($"[Explorer Warning] 対象フォルダが見つかりません: {template?.LocalPath}");
             }
         }
 
@@ -259,7 +270,7 @@ namespace YoutubeCounterApp
             if (template == null) return;
 
             template.IsFavorite = !template.IsFavorite;
-            Logger.WriteLog($"お気に入り状態を変更しました: {template.Name} -> {template.IsFavorite}");
+            Logger.WriteLog($"[Favorite] お気に入り変更: {template.Name} -> {(template.IsFavorite ? "★登録" : "解除")}");
 
             SaveSettings();
             TemplatesView.Refresh();
@@ -275,34 +286,43 @@ namespace YoutubeCounterApp
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
 
-            if (result != MessageBoxResult.Yes) return;
+            if (result != MessageBoxResult.Yes)
+            {
+                Logger.WriteLog($"[Delete] テンプレート削除がキャンセルされました: {template.Name}");
+                return;
+            }
 
             try
             {
-                Logger.WriteLog($"テンプレート削除処理を開始します: {template.Name}");
+                Logger.WriteLog($"[Delete] テンプレート削除開始: {template.Name} (Path: {template.LocalPath})");
                 template.PreviewImage = null;
 
-                // ファイル直置き形式の場合はそのHTMLと対応画像を削除、フォルダ形式の場合はディレクトリごと削除
+                // 単一HTML配置パターンの場合
                 if (File.Exists(template.HtmlPath) && Path.GetFileName(template.LocalPath) != template.Name)
                 {
                     File.Delete(template.HtmlPath);
+                    Logger.WriteLog($"[Delete] HTMLファイルを削除: {template.HtmlPath}");
+
                     if (!string.IsNullOrEmpty(template.PreviewImagePath) && File.Exists(template.PreviewImagePath))
                     {
                         File.Delete(template.PreviewImagePath);
+                        Logger.WriteLog($"[Delete] プレビュー画像を削除: {template.PreviewImagePath}");
                     }
                 }
+                // フォルダ配置パターンの場合
                 else if (template.LocalPath != null && Directory.Exists(template.LocalPath))
                 {
                     Directory.Delete(template.LocalPath, true);
+                    Logger.WriteLog($"[Delete] ディレクトリを再帰削除: {template.LocalPath}");
                 }
 
                 Templates.Remove(template);
                 SaveSettings();
-                Logger.WriteLog($"テンプレートを正常に削除しました: {template.Name}");
+                Logger.WriteLog($"[Delete] テンプレートの削除が完了しました: {template.Name}");
             }
             catch (Exception ex)
             {
-                Logger.WriteLog($"[ERROR] テンプレート削除に失敗しました ({template.Name}): {ex.Message}");
+                Logger.WriteLog($"[Delete Error] テンプレート削除に失敗しました ({template.Name}): {ex.Message}\n{ex.StackTrace}");
                 MessageBox.Show($"削除に失敗しました: {ex.Message}");
             }
         }
@@ -315,19 +335,21 @@ namespace YoutubeCounterApp
                 if (favorites != null && favorites.Count > 0)
                 {
                     var favSet = new HashSet<string>(favorites);
+                    int matched = 0;
                     foreach (var template in Templates)
                     {
-                        if (template.FolderName != null)
+                        if (template.FolderName != null && favSet.Contains(template.FolderName))
                         {
-                            template.IsFavorite = favSet.Contains(template.FolderName);
+                            template.IsFavorite = true;
+                            matched++;
                         }
                     }
+                    Logger.WriteLog($"[Favorite Load] AppSettings からお気に入り情報を反映しました ({matched}件)");
                 }
-                Logger.WriteLog("AppSettings からお気に入り情報を反映しました。");
             }
             catch (Exception ex)
             {
-                Logger.WriteLog($"[ERROR] お気に入り設定の読み込みに失敗しました: {ex.Message}");
+                Logger.WriteLog($"[Favorite Load Error] お気に入り設定の読み込みに失敗しました: {ex.Message}");
             }
         }
 
@@ -341,126 +363,133 @@ namespace YoutubeCounterApp
                     .ToList();
 
                 AppSettings.Instance.Save();
-                Logger.WriteLog("お気に入り情報を config.json へ保存しました。");
+                Logger.WriteLog($"[Favorite Save] お気に入り {AppSettings.Instance.FavoriteTemplates.Count} 件を保存しました。");
             }
             catch (Exception ex)
             {
-                Logger.WriteLog($"[ERROR] お気に入り設定の保存に失敗しました: {ex.Message}");
+                Logger.WriteLog($"[Favorite Save Error] お気に入り設定の保存に失敗しました: {ex.Message}");
             }
         }
 
-    /// <summary>
-    /// フォルダ、Zipファイル、または個別ファイルからのインポート処理（ハイブリッド型）
-    /// </summary>
-    private void ImportTemplateFromPath(string path)
-    {
-        Logger.WriteLog($"テンプレートのインポートを試行します: {path}");
-
-        // ファイルが指定され、かつ .zip ではない場合は親フォルダを対象にする
-        if (File.Exists(path) && !Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+        private void ImportTemplateFromPath(string path)
         {
-            string? parent = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(parent)) path = parent;
-        }
+            Logger.WriteLog($"[Import] インポート処理開始: {path}");
 
-        string itemName = Path.GetFileNameWithoutExtension(path);
-        string targetCategory;
-
-        // ① 特定カテゴリ（Counter / Comment / Reaction / Clock）表示中はダイアログなしでそのまま追加
-        if (SelectedCategory != "All" && SelectedCategory != "Favorite")
-        {
-            targetCategory = SelectedCategory;
-        }
-        else
-        {
-            // ② 「すべて」または「お気に入り」タブ時はキーワードから初期値を推測し、ダイアログで確認
-            string guessedCategory = GuessCategoryFromPath(path);
-
-            var dialog = new CategorySelectDialog(itemName, guessedCategory)
+            if (File.Exists(path) && !Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                Owner = Application.Current.Windows.OfType<TemplateSelectWindow>().FirstOrDefault()
-            };
-
-            if (dialog.ShowDialog() != true)
-            {
-                Logger.WriteLog("インポートがユーザーによってキャンセルされました。");
-                return;
+                string? parent = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(parent))
+                {
+                    Logger.WriteLog($"[Import] 単一ファイル指定のため、親ディレクトリを対象にします: {parent}");
+                    path = parent;
+                }
             }
 
-            targetCategory = dialog.SelectedCategory;
-        }
+            string itemName = Path.GetFileNameWithoutExtension(path);
+            string targetCategory;
 
-        string destinationDir = Path.Combine(_templatesRoot, targetCategory);
-        Directory.CreateDirectory(destinationDir);
-
-        if (Directory.Exists(path))
-        {
-            string folderName = Path.GetFileName(path);
-            string targetPath = Path.Combine(destinationDir, folderName);
-
-            if (!Directory.Exists(targetPath))
+            if (SelectedCategory != "All" && SelectedCategory != "Favorite")
             {
-                CopyDirectory(path, targetPath);
-                Logger.WriteLog($"フォルダからテンプレートを追加しました: [{targetCategory}] {folderName}");
-                LoadTemplates();
-                LoadSettings();
+                targetCategory = SelectedCategory;
+                Logger.WriteLog($"[Import] 現在選択中のカテゴリ '{targetCategory}' へ直接追加します。");
             }
             else
             {
-                MessageBox.Show($"「{folderName}」は既に {targetCategory} 内に存在します。");
-            }
-        }
-        else if (File.Exists(path) && Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            string folderName = Path.GetFileNameWithoutExtension(path);
-            string targetPath = Path.Combine(destinationDir, folderName);
+                string guessedCategory = GuessCategoryFromPath(path);
+                Logger.WriteLog($"[Import] 推定カテゴリ: {guessedCategory}");
 
-            if (!Directory.Exists(targetPath))
+                var dialog = new CategorySelectDialog(itemName, guessedCategory)
+                {
+                    Owner = Application.Current.Windows.OfType<TemplateSelectWindow>().FirstOrDefault()
+                };
+
+                if (dialog.ShowDialog() != true)
+                {
+                    Logger.WriteLog("[Import] カテゴリ選択ダイアログでキャンセルされました。");
+                    return;
+                }
+
+                targetCategory = dialog.SelectedCategory;
+                Logger.WriteLog($"[Import] ユーザー指定カテゴリ: {targetCategory}");
+            }
+
+            string destinationDir = Path.Combine(_templatesRoot, targetCategory);
+            Directory.CreateDirectory(destinationDir);
+
+            try
             {
-                ZipFile.ExtractToDirectory(path, targetPath);
-                UnwrapSingleFolderIfNeeded(targetPath);
-                Logger.WriteLog($"Zipファイルからテンプレートを展開・追加しました: [{targetCategory}] {folderName}");
-                LoadTemplates();
-                LoadSettings();
+                if (Directory.Exists(path))
+                {
+                    string folderName = Path.GetFileName(path);
+                    string targetPath = Path.Combine(destinationDir, folderName);
+
+                    if (Directory.Exists(targetPath))
+                    {
+                        Logger.WriteLog($"[Import Warning] 既に同名フォルダが存在します: {targetPath}");
+                        MessageBox.Show($"「{folderName}」は既に {targetCategory} 内に存在します。");
+                        return;
+                    }
+
+                    CopyDirectory(path, targetPath);
+                    Logger.WriteLog($"[Import] フォルダのインポート完了: [{targetCategory}] {folderName}");
+                    LoadTemplates();
+                    LoadSettings();
+                }
+                else if (File.Exists(path) && Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    string folderName = Path.GetFileNameWithoutExtension(path);
+                    string targetPath = Path.Combine(destinationDir, folderName);
+
+                    if (Directory.Exists(targetPath))
+                    {
+                        Logger.WriteLog($"[Import Warning] 既に同名フォルダが存在します: {targetPath}");
+                        MessageBox.Show($"「{folderName}」は既に {targetCategory} 内に存在します。");
+                        return;
+                    }
+
+                    ZipFile.ExtractToDirectory(path, targetPath);
+                    Logger.WriteLog($"[Import] ZIPを展開しました: {targetPath}");
+                    UnwrapSingleFolderIfNeeded(targetPath);
+
+                    Logger.WriteLog($"[Import] ZIPインポート完了: [{targetCategory}] {folderName}");
+                    LoadTemplates();
+                    LoadSettings();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                MessageBox.Show($"「{folderName}」は既に {targetCategory} 内に存在します。");
+                Logger.WriteLog($"[Import Error] インポート展開中に例外: {ex.Message}\n{ex.StackTrace}");
+                MessageBox.Show($"インポート中にエラーが発生しました: {ex.Message}");
             }
         }
-    }
 
-    /// <summary>
-    /// フォルダ名やファイル名からカテゴリを推測するヘルパー
-    /// </summary>
-    private static string GuessCategoryFromPath(string path)
-    {
-        string name = Path.GetFileName(path).ToLowerInvariant();
+        private static string GuessCategoryFromPath(string path)
+        {
+            string name = Path.GetFileName(path).ToLowerInvariant();
 
-        // 💡 手動カウンター判定を優先
-        if (name.Contains("manual") || name.Contains("マニュアル") || name.Contains("手動") || name.Contains("もくひょう") || name.Contains("おはよう") || name.Contains("あいさつ"))
-        {
-            return "ManualCounter";
-        }
-        if (name.Contains("comment") || name.Contains("chat") || name.Contains("コメント") || name.Contains("チャット"))
-        {
-            return "Comment";
-        }
-        if (name.Contains("clock") || name.Contains("time") || name.Contains("時計") || name.Contains("タイマー") || name.Contains("同時視聴"))
-        {
-            return "Clock";
-        }
-        if (name.Contains("reaction") || name.Contains("リアクション") || name.Contains("タンク") || name.Contains("絵文字"))
-        {
-            return "Reaction";
-        }
-        if (name.Contains("count") || name.Contains("sub") || name.Contains("高評価") || name.Contains("登録") || name.Contains("同接") || name.Contains("カウンター"))
-        {
+            if (name.Contains("manual") || name.Contains("マニュアル") || name.Contains("手動") || name.Contains("もくひょう") || name.Contains("おはよう") || name.Contains("あいさつ"))
+            {
+                return "ManualCounter";
+            }
+            if (name.Contains("comment") || name.Contains("chat") || name.Contains("コメント") || name.Contains("チャット"))
+            {
+                return "Comment";
+            }
+            if (name.Contains("clock") || name.Contains("time") || name.Contains("時計") || name.Contains("タイマー") || name.Contains("同時視聴"))
+            {
+                return "Clock";
+            }
+            if (name.Contains("reaction") || name.Contains("リアクション") || name.Contains("タンク") || name.Contains("絵文字"))
+            {
+                return "Reaction";
+            }
+            if (name.Contains("count") || name.Contains("sub") || name.Contains("高評価") || name.Contains("登録") || name.Contains("同接") || name.Contains("カウンター"))
+            {
+                return "Counter";
+            }
+
             return "Counter";
         }
-
-        return "Counter";
-    }
 
         private static void UnwrapSingleFolderIfNeeded(string targetPath)
         {
@@ -477,12 +506,12 @@ namespace YoutubeCounterApp
                     Directory.Move(singleSubDir, tempPath);
                     Directory.Delete(targetPath, true);
                     Directory.Move(tempPath, targetPath);
-                    Logger.WriteLog($"ZIP解凍後の二重フォルダ構造を解消しました: {targetPath}");
+                    Logger.WriteLog($"[Unwrap] ZIP内の単一階層フォルダ構造を解消しました: {targetPath}");
                 }
             }
             catch (Exception ex)
             {
-                Logger.WriteLog($"[ERROR] フォルダ階層の調整に失敗しました: {ex.Message}");
+                Logger.WriteLog($"[Unwrap Error] フォルダ階層調整に失敗: {ex.Message}");
             }
         }
 
@@ -505,7 +534,7 @@ namespace YoutubeCounterApp
             {
                 if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
                 {
-                    Logger.WriteLog($"ドラッグ＆ドロップによるインポートを検知しました (件数: {files.Length})");
+                    Logger.WriteLog($"[DragDrop] ファイルドロップを検知: {files.Length} 件");
                     foreach (var path in files)
                     {
                         ImportTemplateFromPath(path);
@@ -525,7 +554,12 @@ namespace YoutubeCounterApp
 
             if (dialog.ShowDialog() == true)
             {
+                Logger.WriteLog($"[Dialog] ファイルが選択されました: {dialog.FileName}");
                 ImportTemplateFromPath(dialog.FileName);
+            }
+            else
+            {
+                Logger.WriteLog("[Dialog] ファイル選択がキャンセルされました。");
             }
         }
 
@@ -541,17 +575,21 @@ namespace YoutubeCounterApp
 
                 if (File.Exists(targetPath))
                 {
-                    // 余計なパラメータを付けず、ブラウザにそのまま渡す
+                    Logger.WriteLog($"[Preview] プレビューをブラウザで開きます: {targetPath}");
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = targetPath,
                         UseShellExecute = true
                     });
                 }
+                else
+                {
+                    Logger.WriteLog($"[Preview Warning] プレビュー対象ファイルが見つかりません: {targetPath}");
+                }
             }
             catch (Exception ex)
             {
-                Logger.WriteLog($"[Preview] プレビュー起動失敗: {ex.Message}");
+                Logger.WriteLog($"[Preview Error] プレビュー起動失敗: {ex.Message}");
             }
         }
 
@@ -561,7 +599,6 @@ namespace YoutubeCounterApp
 
             try
             {
-                // 先頭5KB程度のみ読み込めば十分（ファイル全体を読み込まず高速化）
                 string content;
                 using (var reader = new StreamReader(htmlPath))
                 {
@@ -570,31 +607,37 @@ namespace YoutubeCounterApp
                     content = new string(buffer, 0, read);
                 }
 
-                // 1. <meta name="obs-size" content="450x650"> を検索
+                // 1. <meta name="obs-size" content="450x650">
                 var metaMatch = Regex.Match(content, @"<meta\s+name=[""']obs-size[""']\s+content=[""'](?<w>\d+)\s*[x×,]\s*(?<h>\d+)[""']", RegexOptions.IgnoreCase);
                 if (metaMatch.Success)
                 {
-                    return (int.Parse(metaMatch.Groups["w"].Value), int.Parse(metaMatch.Groups["h"].Value));
+                    int w = int.Parse(metaMatch.Groups["w"].Value);
+                    int h = int.Parse(metaMatch.Groups["h"].Value);
+                    return (w, h);
                 }
 
-                // 2. コメント形式 <!-- obs-size: 450x650 --> を検索
+                // 2. コメント形式 <!-- obs-size: 450x650 -->
                 var commentMatch = Regex.Match(content, @"obs-(?:recommended-)?size:\s*(?<w>\d+)\s*[x×,]\s*(?<h>\d+)", RegexOptions.IgnoreCase);
                 if (commentMatch.Success)
                 {
-                    return (int.Parse(commentMatch.Groups["w"].Value), int.Parse(commentMatch.Groups["h"].Value));
+                    int w = int.Parse(commentMatch.Groups["w"].Value);
+                    int h = int.Parse(commentMatch.Groups["h"].Value);
+                    return (w, h);
                 }
 
-                // 3. CSS内の body または #chat-wrapper などの width/height (例: width: 450px; height: 600px;) から推測
+                // 3. CSS内の body/wrapper width/height
                 var widthMatch = Regex.Match(content, @"(?:body|container|wrapper)\s*\{[^}]*?width:\s*(?<w>\d+)px", RegexOptions.IgnoreCase | RegexOptions.Singleline);
                 var heightMatch = Regex.Match(content, @"(?:body|container|wrapper)\s*\{[^}]*?height:\s*(?<h>\d+)px", RegexOptions.IgnoreCase | RegexOptions.Singleline);
                 if (widthMatch.Success && heightMatch.Success)
                 {
-                    return (int.Parse(widthMatch.Groups["w"].Value), int.Parse(heightMatch.Groups["h"].Value));
+                    int w = int.Parse(widthMatch.Groups["w"].Value);
+                    int h = int.Parse(heightMatch.Groups["h"].Value);
+                    return (w, h);
                 }
             }
             catch (Exception ex)
             {
-                Logger.WriteLog($"[Template] HTMLサイズ抽出エラー ({htmlPath}): {ex.Message}");
+                Logger.WriteLog($"[HTML Size Error] 推奨サイズ抽出エラー ({htmlPath}): {ex.Message}");
             }
 
             return null;

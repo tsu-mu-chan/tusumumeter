@@ -12,7 +12,14 @@ namespace YoutubeCounterApp
     public class ListenerListViewModel : INotifyPropertyChanged
     {
         private readonly ListenerService _listenerService;
-        private bool _isCurrentSessionOnly = false;
+
+        public ObservableCollection<ListenerInfo> Listeners { get; } = new();
+        public ICollectionView ListenersView { get; }
+
+        public string[] SortOptions { get; } = { "🕒 最近のコメント順", "💬 コメント数順", "🌱 はじめまして順" };
+
+        #region バインドプロパティ
+        private bool _isCurrentSessionOnly;
         public bool IsCurrentSessionOnly
         {
             get => _isCurrentSessionOnly;
@@ -22,15 +29,11 @@ namespace YoutubeCounterApp
                 {
                     _isCurrentSessionOnly = value;
                     OnPropertyChanged();
-                    ListenersView.Refresh(); // フィルターを再実行
+                    Logger.WriteLog($"[ListenerFilter] 今枠のみ絞り込み切替: {value}");
+                    ListenersView.Refresh();
                 }
             }
         }
-
-        public ObservableCollection<ListenerInfo> Listeners { get; } = new();
-        public ICollectionView ListenersView { get; }
-
-        public string[] SortOptions { get; } = new[] { "🕒 最近のコメント順", "💬 コメント数順", "🌱 はじめまして順" };
 
         private string _selectedSort = "🕒 最近のコメント順";
         public string SelectedSort
@@ -42,6 +45,7 @@ namespace YoutubeCounterApp
                 {
                     _selectedSort = value;
                     OnPropertyChanged();
+                    Logger.WriteLog($"[ListenerSort] ソート順変更: {value}");
                     ApplySorting();
                 }
             }
@@ -75,6 +79,7 @@ namespace YoutubeCounterApp
                 }
             }
         }
+        #endregion
 
         public ICommand SaveChangesCommand { get; }
         public ICommand DeleteListenerCommand { get; }
@@ -82,12 +87,15 @@ namespace YoutubeCounterApp
 
         public ListenerListViewModel(ListenerService listenerService)
         {
+            Logger.WriteLog("[Init] ListenerListViewModel の初期化を開始します。");
             _listenerService = listenerService;
 
-            foreach (var item in _listenerService.GetAllListeners())
+            var allListeners = _listenerService.GetAllListeners().ToList();
+            foreach (var item in allListeners)
             {
                 Listeners.Add(item);
             }
+            Logger.WriteLog($"[Listener UI] 既存リスナーデータをロードしました ({Listeners.Count} 件)");
 
             ListenersView = CollectionViewSource.GetDefaultView(Listeners);
             ListenersView.Filter = FilterListeners;
@@ -98,31 +106,29 @@ namespace YoutubeCounterApp
 
             SaveChangesCommand = new RelayCommand(_ =>
             {
+                Logger.WriteLog("[Listener UI] ユーザーによる手動保存を実行します。");
                 _listenerService.Save();
-                Logger.WriteLog("[Listener UI] メモ等の変更を手動保存しました。");
+                Logger.WriteLog("[Listener UI] リスナー情報を正常に保存しました。");
             });
 
             DeleteListenerCommand = new RelayCommand(_ => DeleteSelectedListener());
             ImportCsvCommand = new RelayCommand(_ => ExecuteImportCsv());
+
+            Logger.WriteLog("[Init] ListenerListViewModel の初期化が完了しました。");
         }
 
         private void ApplySorting()
         {
             ListenersView.SortDescriptions.Clear();
 
-            switch (SelectedSort)
+            var (propertyName, direction) = SelectedSort switch
             {
-                case "💬 コメント数順":
-                    ListenersView.SortDescriptions.Add(new SortDescription(nameof(ListenerInfo.CommentCount), ListSortDirection.Descending));
-                    break;
-                case "🌱 はじめまして順":
-                    ListenersView.SortDescriptions.Add(new SortDescription(nameof(ListenerInfo.FirstSeen), ListSortDirection.Ascending));
-                    break;
-                case "🕒 最近のコメント順":
-                default:
-                    ListenersView.SortDescriptions.Add(new SortDescription(nameof(ListenerInfo.LastSeen), ListSortDirection.Descending));
-                    break;
-            }
+                "💬 コメント数順" => (nameof(ListenerInfo.CommentCount), ListSortDirection.Descending),
+                "🌱 はじめまして順" => (nameof(ListenerInfo.FirstSeen), ListSortDirection.Ascending),
+                _ => (nameof(ListenerInfo.LastSeen), ListSortDirection.Descending)
+            };
+
+            ListenersView.SortDescriptions.Add(new SortDescription(propertyName, direction));
             ListenersView.Refresh();
         }
 
@@ -130,16 +136,25 @@ namespace YoutubeCounterApp
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
-                if (!Listeners.Contains(info))
+                try
                 {
-                    Listeners.Add(info);
+                    if (!Listeners.Contains(info))
+                    {
+                        Listeners.Add(info);
+                        Logger.WriteLog($"[Listener UI] 新規リスナーをリストに追加: {info.Name} (ID: {info.ChannelId})");
+                    }
+                    ListenersView.Refresh();
                 }
-                ListenersView.Refresh();
+                catch (Exception ex)
+                {
+                    Logger.WriteLog($"[Listener UI Error] リスト更新反映中に例外: {ex.Message}");
+                }
             });
         }
 
         public void Cleanup()
         {
+            Logger.WriteLog("[Listener UI] イベント購読を解除してクリーンアップします。");
             _listenerService.ListenerUpdated -= OnListenerUpdated;
         }
 
@@ -147,7 +162,7 @@ namespace YoutubeCounterApp
         {
             if (item is not ListenerInfo info) return false;
 
-            // 💡 今枠のみ絞り込み（今枠の開始以降に来訪、または今枠でギフト・ジュエルがあるリスナー）
+            // 今枠のみ絞り込み
             if (IsCurrentSessionOnly)
             {
                 bool activeInThisSession = info.LastSeen >= _listenerService.SessionStartTime
@@ -175,26 +190,27 @@ namespace YoutubeCounterApp
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
 
-            if (result == MessageBoxResult.Yes)
+            if (result != MessageBoxResult.Yes)
             {
-                try
-                {
-                    // 1. コレクションから削除
-                    Listeners.Remove(target);
-                    SelectedListener = null;
+                Logger.WriteLog($"[Listener UI] リスナー削除がキャンセルされました: {target.Name}");
+                return;
+            }
 
-                    // 2. サービス側からの削除 & 保存（※ListenerServiceにメソッドがある場合）
-                    // メソッド名が異なる場合は適宜読み替えてください
-                    _listenerService.RemoveListener(target);
-                    _listenerService.Save();
+            try
+            {
+                Logger.WriteLog($"[Listener UI] リスナー削除処理を開始: {target.Name} (ID: {target.ChannelId})");
+                Listeners.Remove(target);
+                SelectedListener = null;
 
-                    Logger.WriteLog($"[Listener UI] リスナーを削除しました: {target.Name} (ID: {target.ChannelId})");
-                }
-                catch (Exception ex)
-                {
-                    Logger.WriteLog($"[ERROR] リスナー削除に失敗しました: {ex.Message}");
-                    MessageBox.Show($"削除に失敗しました: {ex.Message}");
-                }
+                _listenerService.RemoveListener(target);
+                _listenerService.Save();
+
+                Logger.WriteLog($"[Listener UI] リスナーを正常に削除しました: {target.Name}");
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[Listener UI Error] リスナー削除に失敗しました ({target.Name}): {ex.Message}\n{ex.StackTrace}");
+                MessageBox.Show($"削除に失敗しました: {ex.Message}");
             }
         }
 
@@ -206,31 +222,36 @@ namespace YoutubeCounterApp
                 Title = "わんコメのリスナー一覧CSVを選択してください"
             };
 
-            if (dialog.ShowDialog() == true)
+            if (dialog.ShowDialog() != true)
             {
-                try
-                {
-                    int count = _listenerService.ImportFromOneCommeCsv(dialog.FileName);
+                Logger.WriteLog("[Listener Import] CSV選択ダイアログがキャンセルされました。");
+                return;
+            }
 
-                    // UI上のコレクションを最新化
-                    Listeners.Clear();
-                    foreach (var item in _listenerService.GetAllListeners())
-                    {
-                        Listeners.Add(item);
-                    }
-                    ListenersView.Refresh();
+            try
+            {
+                Logger.WriteLog($"[Listener Import] CSVインポートを開始します: {dialog.FileName}");
+                int count = _listenerService.ImportFromOneCommeCsv(dialog.FileName);
 
-                    MessageBox.Show(
-                        $"{count} 件のリスナーデータをインポート・統合しました！✨",
-                        "インポート完了",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                }
-                catch (Exception ex)
+                Listeners.Clear();
+                foreach (var item in _listenerService.GetAllListeners())
                 {
-                    Logger.WriteLog($"[Import Error] CSVインポート失敗: {ex.Message}");
-                    MessageBox.Show($"インポート中にエラーが発生しました:\n{ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Listeners.Add(item);
                 }
+                ListenersView.Refresh();
+
+                Logger.WriteLog($"[Listener Import] インポート成功: {count} 件統合完了");
+
+                MessageBox.Show(
+                    $"{count} 件のリスナーデータをインポート・統合しました！✨",
+                    "インポート完了",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLog($"[Listener Import Error] CSVインポート失敗: {ex.Message}\n{ex.StackTrace}");
+                MessageBox.Show($"インポート中にエラーが発生しました:\n{ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

@@ -155,7 +155,12 @@
                             </Border.Effect>
                             <StackPanel>
                                 <TextBlock Text="🚀 動作設定" FontSize="13" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,0,0,6"/>
-                                <CheckBox x:Name="CbAutoStart" Content="起動時に自動で監視を開始する" Margin="0,4,0,4"/>
+                                <CheckBox x:Name="CbAutoStart" Content="起動時に自動で監視を開始する" Margin="0,4,0,8"/>
+
+                                <!-- 💡 バージョンスキップ設定を追加 -->
+                                <CheckBox x:Name="CbSkipVersion" Content="最新アップデートの通知をスキップする" Margin="0,4,0,2"/>
+                                <TextBlock x:Name="TxtSkipVersionDetail" Text="（現在スキップ中のバージョンはありません）" 
+                                        FontSize="11" Foreground="#94A3B8" Margin="20,0,0,4"/>
                             </StackPanel>
                         </Border>
 
@@ -228,7 +233,7 @@
                     </Button>
 
                     <!-- バージョン表記（ベタ書き） -->
-                    <TextBlock Text="Version 4.0.0" 
+                    <TextBlock Text="Version 5.0.0" 
                                FontSize="11" 
                                FontWeight="SemiBold"
                                Foreground="#94A3B8" 

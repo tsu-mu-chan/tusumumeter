@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Media;
 
 namespace YoutubeCounterApp
 {
@@ -9,23 +10,16 @@ namespace YoutubeCounterApp
         {
             InitializeComponent();
 
-            // メイン画面の DataContext (MainViewModel) を引き継ぐ
             if (Application.Current.MainWindow is MainWindow mainWin)
             {
                 this.Owner = mainWin;
                 this.DataContext = mainWin.DataContext;
             }
 
-            // 現在の設定値をUIコントロールに反映
             LoadSettingsToUi();
-
-            // ウィンドウが閉じられたときに自動で設定を保存するハンドラーを登録
             this.Closed += BasicSettingsDialog_Closed;
         }
 
-        /// <summary>
-        /// 現在の AppSettings の値を入力欄へセットする
-        /// </summary>
         private void LoadSettingsToUi()
         {
             var s = AppSettings.Instance;
@@ -36,39 +30,42 @@ namespace YoutubeCounterApp
             TbWsPort.Text = s.WebSocketPort.ToString();
 
             CbAutoStart.IsChecked = s.AutoStartMonitoring;
+
+            // スキップ状態の読み込み
+            if (!string.IsNullOrEmpty(s.SkippedVersion))
+            {
+                CbSkipVersion.IsChecked = true;
+                CbSkipVersion.IsEnabled = true;
+                TxtSkipVersionDetail.Text = $"v{s.SkippedVersion} の通知を停止中（チェックを外すと次回再通知）";
+                TxtSkipVersionDetail.Foreground = Brushes.DarkOrange;
+            }
+            else
+            {
+                CbSkipVersion.IsChecked = false;
+                CbSkipVersion.IsEnabled = false;
+                TxtSkipVersionDetail.Text = "（現在スキップ中のバージョンはありません）";
+                TxtSkipVersionDetail.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94A3B8"));
+            }
         }
 
-        /// <summary>
-        /// アカウント切替ボタンをクリックした時の処理
-        /// </summary>
         private async void BtnSwitchAccount_Click(object sender, RoutedEventArgs e)
         {
             if (Application.Current.MainWindow is MainWindow mainWin)
             {
-                // ダイアログを先に閉じる（Closedイベント経由でSaveも実行されます）
                 this.Close();
-
-                // メイン画面側のアカウント切替処理を実行
                 await mainWin.SwitchYoutubeAccountAsync();
             }
         }
 
-        /// <summary>
-        /// CLOSEボタンをクリックした時の処理
-        /// </summary>
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
-            this.Close(); // Close() を呼ぶことで BasicSettingsDialog_Closed が発火します
+            this.Close();
         }
 
-        /// <summary>
-        /// ダイアログが閉じられるタイミングでUIの値をバリデーションして config.json へ保存
-        /// </summary>
         private void BasicSettingsDialog_Closed(object? sender, EventArgs e)
         {
             var s = AppSettings.Instance;
 
-            // --- 入力値の検証と反映（無効な文字や小さすぎる値は既存値をキープ） ---
             if (int.TryParse(TbStayDuration.Text, out int stay) && stay >= 5)
             {
                 s.StayDurationSeconds = stay;
@@ -91,7 +88,13 @@ namespace YoutubeCounterApp
 
             s.AutoStartMonitoring = CbAutoStart.IsChecked ?? true;
 
-            // ファイルへ永続化
+            // チェックが外された場合はスキップバージョンをクリア
+            if (CbSkipVersion.IsChecked == false && !string.IsNullOrEmpty(s.SkippedVersion))
+            {
+                Logger.WriteLog($"[Settings] バージョンスキップを解除しました (以前: {s.SkippedVersion})");
+                s.SkippedVersion = "";
+            }
+
             s.Save();
             Logger.WriteLog("[Settings] ダイアログ終了に伴い基本設定を更新・保存しました。");
         }

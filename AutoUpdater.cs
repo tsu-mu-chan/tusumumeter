@@ -12,9 +12,9 @@ namespace YoutubeCounterApp
 {
     public class AutoUpdater
     {
-        // ご自身のGitHubユーザー名とリポジトリ名を設定
+        // 💡 リポジトリ名を実際の「tusumumeter」に修正
         private const string GitHubOwner = "tsu-mu-chan";
-        private const string GitHubRepo = "YoutubeCounterApp";
+        private const string GitHubRepo = "tusumumeter";
 
         public async Task CheckAndUpdateAsync()
         {
@@ -26,7 +26,7 @@ namespace YoutubeCounterApp
 
                 // 2. GitHub APIで最新リリース情報を取得
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("YoutubeCounterApp", "1.0"));
+                client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("tusumumeter", "1.0"));
 
                 string url = $"https://api.github.com/repos/{GitHubOwner}/{GitHubRepo}/releases/latest";
                 var response = await client.GetAsync(url);
@@ -37,8 +37,9 @@ namespace YoutubeCounterApp
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                // タグ名を取得 (例: "v1.0.1" -> "1.0.1")
-                string tagName = root.GetProperty("tag_name").GetString()?.TrimStart('v') ?? "";
+                // 💡 大文字の "V" でも小文字の "v" でも両方除去できるように対応
+                string rawTag = root.GetProperty("tag_name").GetString() ?? "";
+                string tagName = rawTag.TrimStart('v', 'V');
                 if (!Version.TryParse(tagName, out Version? latestVersion)) return;
 
                 string skippedVersion = AppSettings.Instance.SkippedVersion;
@@ -78,7 +79,7 @@ namespace YoutubeCounterApp
                         {
                             WindowStartupLocation = WindowStartupLocation.CenterScreen,
                             Topmost = true
-                        } ;        
+                        };        
                         var mainWindow = Application.Current.MainWindow;
                         if (mainWindow != null && mainWindow.IsVisible)
                         {
@@ -121,16 +122,16 @@ namespace YoutubeCounterApp
                 await File.WriteAllBytesAsync(tempZipPath, bytes);
 
                 int processId = Environment.ProcessId;
-                string exeName = Process.GetCurrentProcess().MainModule?.ModuleName ?? "YoutubeCounterApp.exe";
+                string exeName = Process.GetCurrentProcess().MainModule?.ModuleName ?? "つむメーター.exe";
 
                 // アプリ終了後にZIPを展開して上書き・再起動するPowerShell処理
                 string psScript = $@"
-Start-Sleep -Seconds 1
-Wait-Process -Id {processId} -ErrorAction SilentlyContinue
-Expand-Archive -Path '{tempZipPath}' -DestinationPath '{appDir}' -Force
-Remove-Item '{tempZipPath}' -Force
-Start-Process '{Path.Combine(appDir, exeName)}'
-";
+                                Start-Sleep -Seconds 1
+                                Wait-Process -Id {processId} -ErrorAction SilentlyContinue
+                                Expand-Archive -Path '{tempZipPath}' -DestinationPath '{appDir}' -Force
+                                Remove-Item '{tempZipPath}' -Force
+                                Start-Process '{Path.Combine(appDir, exeName)}'
+                                ";
 
                 var startInfo = new ProcessStartInfo
                 {
